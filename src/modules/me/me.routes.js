@@ -68,6 +68,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  */
 router.use(requireAuth);
 router.patch('/', controller.updateProfile);
+router.post('/avatar', controller.uploadAvatar);
 router.post('/change-password', controller.changePassword);
 router.get('/addresses', controller.listAddresses);
 router.post('/addresses', controller.createAddress);

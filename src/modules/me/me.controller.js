@@ -1,10 +1,15 @@
 const bcrypt = require('bcryptjs');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 const repo = require('./me.repository');
 const authRepo = require('../auth/auth.repository');
 const packagesRepo = require('../packages/packages.repository');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
+const env = require('../../config/env');
 
 function publicUser(user) {
   return {
@@ -60,6 +65,46 @@ const changePassword = asyncHandler(async (req, res) => {
   await authRepo.updatePassword(user.id, passwordHash);
   ok(res, { changed: true }, 'Password changed');
 });
+
+// ---- avatar upload ----
+
+const AVATAR_UPLOAD_DIR = path.join(__dirname, '../../../uploads');
+fs.mkdirSync(AVATAR_UPLOAD_DIR, { recursive: true });
+
+const AVATAR_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
+const avatarUploadMiddleware = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, AVATAR_UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, `avatar-${uuidv4()}${path.extname(file.originalname || '').toLowerCase()}`),
+  }),
+  limits: { fileSize: AVATAR_MAX_SIZE_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (!AVATAR_MIME_TYPES.has(file.mimetype)) return cb(new Error('UNSUPPORTED_TYPE'));
+    cb(null, true);
+  },
+}).single('file');
+
+// Not wrapped in asyncHandler — multer's callback API needs its error
+// handled directly so we can turn it into a proper ApiError instead of a raw 500.
+function uploadAvatar(req, res, next) {
+  avatarUploadMiddleware(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.badRequest('Image is too large. Max size is 5MB.'));
+      if (err.message === 'UNSUPPORTED_TYPE') return next(ApiError.badRequest('Unsupported image type. Use PNG, JPG, WEBP or GIF.'));
+      return next(ApiError.badRequest('Upload failed'));
+    }
+    if (!req.file) return next(ApiError.badRequest('No file uploaded'));
+    try {
+      const url = `${env.apiBaseUrl}/uploads/${req.file.filename}`;
+      const user = await repo.updateProfile(req.user.id, { avatar_url: url });
+      ok(res, publicUser(user), 'Avatar updated');
+    } catch (e) {
+      next(e);
+    }
+  });
+}
 
 // ---- addresses ----
 
@@ -153,6 +198,7 @@ const listGameHistory = asyncHandler(async (req, res) => {
 
 module.exports = {
   updateProfile,
+  uploadAvatar,
   changePassword,
   listAddresses,
   createAddress,
