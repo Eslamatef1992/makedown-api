@@ -37,6 +37,11 @@ async function findVariantById(id) {
   return rows[0] || null;
 }
 
+async function findVariantBySku(sku) {
+  const [rows] = await pool.query('SELECT * FROM product_variants WHERE sku = ? LIMIT 1', [sku]);
+  return rows[0] || null;
+}
+
 async function createVariant(productId, data) {
   const [result] = await pool.query('INSERT INTO product_variants SET ?', [{ ...data, product_id: productId }]);
   return findVariantById(result.insertId);
@@ -58,6 +63,7 @@ module.exports = {
   listVariants,
   listImages,
   findVariantById,
+  findVariantBySku,
   createVariant,
   updateVariant,
   deleteVariant,
