@@ -1,0 +1,64 @@
+-- ============================================================
+-- Make Down — baseline seed data
+-- Run once after schema.sql, on a fresh database.
+-- Creates: default roles/permissions, one super-admin login,
+-- and empty CMS page rows so the admin panel has something to edit.
+-- ============================================================
+
+SET NAMES utf8mb4;
+
+-- ---------- Roles & permissions ----------
+
+INSERT INTO roles (name, description) VALUES
+  ('Super Admin', 'Full access to every module'),
+  ('Editor', 'Manage content: CMS, games, products, packages')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+INSERT INTO permissions (key_name, module, description) VALUES
+  ('dashboard.view', 'dashboard', 'View dashboard'),
+  ('admins.manage', 'admins', 'Manage admin accounts'),
+  ('roles.manage', 'roles', 'Manage roles & permissions'),
+  ('users.manage', 'users', 'Manage users'),
+  ('schools.manage', 'education', 'Manage schools'),
+  ('games.manage', 'education', 'Manage games/quizzes'),
+  ('categories.manage', 'games', 'Manage game categories'),
+  ('games-history.view', 'games', 'View games history'),
+  ('orders.manage', 'orders', 'Manage orders'),
+  ('chat.view', 'chat', 'View chat'),
+  ('products.manage', 'ecommerce', 'Manage products & variants'),
+  ('packages.manage', 'packages', 'Manage packages'),
+  ('contact.manage', 'contact', 'View contact/get-in-touch messages'),
+  ('cms.manage', 'cms', 'Manage CMS pages, FAQ, social links')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+-- Super Admin gets every permission
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT (SELECT id FROM roles WHERE name = 'Super Admin'), id FROM permissions
+ON DUPLICATE KEY UPDATE role_id = role_id;
+
+-- Editor gets content-management permissions only
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT (SELECT id FROM roles WHERE name = 'Editor'), id FROM permissions
+WHERE key_name IN ('dashboard.view', 'games.manage', 'categories.manage', 'products.manage', 'packages.manage', 'cms.manage')
+ON DUPLICATE KEY UPDATE role_id = role_id;
+
+-- ---------- First admin login ----------
+-- Password below is 'ChangeMe123!' hashed with bcrypt (10 rounds).
+-- Log in once and change it, or regenerate the hash yourself:
+--   node -e "console.log(require('bcryptjs').hashSync('YourPassword', 10))"
+
+INSERT INTO admins (name, email, password_hash, role_id, is_active)
+SELECT 'Super Admin', 'admin@makedown.online',
+       '$2a$10$8K1p/a0dURXAmZ8Vgm/2C.HgWDYzO0O5vLGl6QQ0mBcMLb7t3nz6a',
+       (SELECT id FROM roles WHERE name = 'Super Admin'), 1
+WHERE NOT EXISTS (SELECT 1 FROM admins WHERE email = 'admin@makedown.online');
+
+-- ---------- CMS pages (empty placeholders — edit content_html from the admin panel) ----------
+
+INSERT INTO cms_pages (slug, title, content_html) VALUES
+  ('about-us', 'About Us', '<p>Content coming soon.</p>'),
+  ('privacy-policy', 'Privacy Policy', '<p>Content coming soon.</p>'),
+  ('terms-and-conditions', 'Terms & Conditions', '<p>Content coming soon.</p>'),
+  ('return-policy', 'Return Policy', '<p>Content coming soon.</p>'),
+  ('how-it-works', 'How It Works', '<p>Content coming soon.</p>')
+ON DUPLICATE KEY UPDATE title = VALUES(title);

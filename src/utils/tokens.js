@@ -38,3 +38,18 @@ module.exports = {
   verifyRefreshToken,
   hashToken,
 };
+
+function signAdminAccessToken(admin) {
+  return jwt.sign(
+    { sub: admin.id, email: admin.email, roleId: admin.role_id, type: 'admin_access' },
+    env.jwt.adminSecret,
+    { expiresIn: env.jwt.adminExpiresIn }
+  );
+}
+
+function verifyAdminAccessToken(token) {
+  return jwt.verify(token, env.jwt.adminSecret);
+}
+
+module.exports.signAdminAccessToken = signAdminAccessToken;
+module.exports.verifyAdminAccessToken = verifyAdminAccessToken;

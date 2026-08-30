@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified_at DATETIME NULL,
   phone_verified_at DATETIME NULL,
   is_active         TINYINT(1) NOT NULL DEFAULT 1,
+  is_special        TINYINT(1) NOT NULL DEFAULT 0,
   last_login_at     DATETIME NULL,
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

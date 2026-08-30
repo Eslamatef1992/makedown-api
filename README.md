@@ -36,6 +36,23 @@ New modules (products, cart, orders, packages, schools, games, social, chat,
 cms, admin) follow the same four-layer pattern as `src/modules/auth`.
 
 ## Status
-Auth module (register, OTP verification, login, refresh, forgot/reset
-password, profile) is implemented end-to-end. See `docs/PROJECT_PLAN.md` in
-the project root for the full roadmap and schema reference.
+59 endpoints across 17 modules, all documented in Swagger:
+- **Auth** (customer): register+OTP, verify/resend OTP, login, refresh, logout, forgot/reset password, profile
+- **Admin auth + RBAC**: admin login, admins CRUD, roles + permissions
+- **Users**: list/view, toggle active/special
+- **Education**: schools CRUD (+ public code verification), game categories, quizzes + nested questions, game sessions (games history, read-only)
+- **Ecommerce**: product categories, products + variants (admin + public catalog)
+- **Orders**: list/detail/status update (including guest-order filter)
+- **Packages**: CRUD (admin + public listing)
+- **CMS**: pages (about/privacy/terms/return-policy/how-it-works), FAQs, social links, contact messages (admin + public contact form)
+- **Chat**: read-only thread/message viewer for admin
+
+Run `sql/schema.sql` then `sql/seed.sql` on a fresh database — seed creates
+default roles/permissions, a first Super Admin login
+(`admin@makedown.online` / `ChangeMe123!` — change it after first login),
+and empty CMS page rows.
+
+**Not built yet** (see `docs/PROJECT_PLAN.md`): cart/checkout + MyFatoorah
+payment integration, the live multiplayer game engine (Socket.io session
+play), and real-time chat sending. These need dedicated design passes
+rather than being bolted on quickly.

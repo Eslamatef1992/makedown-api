@@ -1,19 +1,43 @@
 const router = require('express').Router();
 
-const authRoutes = require('../modules/auth/auth.routes');
+// ---- Customer-facing auth ----
+router.use('/auth', require('../modules/auth/auth.routes'));
 
-router.use('/auth', authRoutes);
+// ---- Admin panel: auth + RBAC ----
+router.use('/admin/auth', require('../modules/admin-auth/admin-auth.routes'));
+router.use('/admin/dashboard', require('../modules/dashboard/dashboard.routes'));
+router.use('/admin/admins', require('../modules/admins/admins.routes'));
+router.use('/admin/roles', require('../modules/roles/roles.routes'));
+router.use('/admin/users', require('../modules/users/users.routes'));
 
-// Future modules mount here as they're built:
-// router.use('/products', require('../modules/products/products.routes'));
-// router.use('/cart', require('../modules/cart/cart.routes'));
-// router.use('/orders', require('../modules/orders/orders.routes'));
-// router.use('/packages', require('../modules/packages/packages.routes'));
-// router.use('/schools', require('../modules/schools/schools.routes'));
-// router.use('/games', require('../modules/games/games.routes'));
-// router.use('/social', require('../modules/social/social.routes'));
-// router.use('/chat', require('../modules/chat/chat.routes'));
-// router.use('/cms', require('../modules/cms/cms.routes'));
-// router.use('/admin', require('../modules/admin/admin.routes'));
+// ---- Admin panel: education ----
+router.use('/admin/schools', require('../modules/schools/schools.routes'));
+router.use('/admin/quizzes', require('../modules/quizzes/quizzes.routes'));
+router.use('/admin/game-categories', require('../modules/game-categories/game-categories.routes'));
+router.use('/admin/game-sessions', require('../modules/game-sessions/game-sessions.routes'));
+
+// ---- Admin panel: orders & chat ----
+router.use('/admin/orders', require('../modules/orders/orders.routes'));
+router.use('/admin/chat', require('../modules/chat/chat.routes'));
+
+// ---- Admin panel: ecommerce ----
+router.use('/admin/product-categories', require('../modules/product-categories/product-categories.routes'));
+router.use('/admin/products', require('../modules/products/products.routes'));
+router.use('/admin/packages', require('../modules/packages/packages.routes'));
+
+// ---- Admin panel: get in touch + CMS ----
+router.use('/admin/contact-messages', require('../modules/contact/contact.routes'));
+router.use('/admin/cms', require('../modules/cms/cms.routes'));
+
+// ---- Public (website) ----
+router.use('/schools', require('../modules/schools/schools.public.routes'));
+router.use('/game-categories', require('../modules/game-categories/game-categories.public.routes'));
+router.use('/products', require('../modules/products/products.public.routes'));
+router.use('/packages', require('../modules/packages/packages.public.routes'));
+router.use('/contact-us', require('../modules/contact/contact.public.routes'));
+router.use('/', require('../modules/cms/cms.public.routes'));
+
+// Still to come: cart/checkout + payments, live game session play (Socket.io),
+// social (follows) + real-time chat send. See docs/PROJECT_PLAN.md.
 
 module.exports = router;

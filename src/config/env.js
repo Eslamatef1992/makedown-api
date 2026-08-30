@@ -25,6 +25,8 @@ module.exports = {
 
   jwt: {
     accessSecret: required('JWT_ACCESS_SECRET', 'dev_access_secret'),
+    adminSecret: required('JWT_ADMIN_SECRET', 'dev_admin_secret'),
+    adminExpiresIn: process.env.JWT_ADMIN_EXPIRES_IN || '12h',
     refreshSecret: required('JWT_REFRESH_SECRET', 'dev_refresh_secret'),
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
