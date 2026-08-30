@@ -39,8 +39,9 @@ router.use('/packages', require('../modules/packages/packages.public.routes'));
 router.use('/contact-us', require('../modules/contact/contact.public.routes'));
 router.use('/', require('../modules/cms/cms.public.routes'));
 router.use('/site-settings', require('../modules/site-settings/site-settings.public.routes'));
+router.use('/orders', require('../modules/orders/orders.public.routes'));
 
-// Still to come: cart/checkout + payments, live game session play (Socket.io),
+// Still to come: payments gateway integration, live game session play (Socket.io),
 // social (follows) + real-time chat send. See docs/PROJECT_PLAN.md.
 
 module.exports = router;

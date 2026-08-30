@@ -22,5 +22,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
 router.use(requireAdminAuth);
 router.get('/home-video', controller.adminGetHomeVideo);
 router.put('/home-video', controller.adminSetHomeVideo);
+router.get('/contact-info', controller.adminGetContactInfo);
+router.put('/contact-info', controller.adminSetContactInfo);
 
 module.exports = router;

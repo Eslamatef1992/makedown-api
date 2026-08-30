@@ -8,4 +8,9 @@ async function findByCode(code) {
   return rows[0] || null;
 }
 
-module.exports = { ...base, findByCode };
+async function listActive() {
+  const [rows] = await pool.query('SELECT id, name_en, name_ar, logo_url FROM schools WHERE is_active = 1 ORDER BY name_en ASC');
+  return rows;
+}
+
+module.exports = { ...base, findByCode, listActive };

@@ -25,4 +25,10 @@ const verifyCode = asyncHandler(async (req, res) => {
   ok(res, { id: school.id, nameEn: school.name_en, nameAr: school.name_ar, logoUrl: school.logo_url });
 });
 
-module.exports = { ...crud, verifyCode };
+// Public — the website's "Schools" browsing grid.
+const publicList = asyncHandler(async (req, res) => {
+  const schools = await repo.listActive();
+  ok(res, schools.map((s) => ({ id: s.id, nameEn: s.name_en, nameAr: s.name_ar, logoUrl: s.logo_url })));
+});
+
+module.exports = { ...crud, verifyCode, publicList };

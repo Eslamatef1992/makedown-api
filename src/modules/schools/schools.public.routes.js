@@ -12,6 +12,16 @@ const controller = require('./schools.controller');
  *       200: { description: Valid code — returns the school }
  *       404: { description: Invalid code }
  */
+/**
+ * @swagger
+ * /schools:
+ *   get:
+ *     tags: [Schools]
+ *     summary: List active schools (public — used by the education "Schools" page)
+ *     responses: { 200: { description: List of schools } }
+ */
+router.get('/', controller.publicList);
+
 router.get('/verify/:code', controller.verifyCode);
 
 module.exports = router;

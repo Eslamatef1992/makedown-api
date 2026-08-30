@@ -44,4 +44,33 @@ async function updateStatus(id, data) {
   return findById(id);
 }
 
-module.exports = { list, findById, listItems, updateStatus };
+function generateOrderNumber() {
+  const stamp = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `MD${stamp}${rand}`;
+}
+
+async function create(data) {
+  const [result] = await pool.query('INSERT INTO orders SET ?', [data]);
+  return findById(result.insertId);
+}
+
+async function createItems(orderId, items) {
+  if (!items.length) return [];
+  const rows = items.map((it) => [
+    orderId,
+    it.product_id,
+    it.variant_id || null,
+    it.product_name_snapshot,
+    it.quantity,
+    it.unit_price,
+    it.line_total,
+  ]);
+  await pool.query(
+    'INSERT INTO order_items (order_id, product_id, variant_id, product_name_snapshot, quantity, unit_price, line_total) VALUES ?',
+    [rows]
+  );
+  return listItems(orderId);
+}
+
+module.exports = { list, findById, listItems, updateStatus, create, createItems, generateOrderNumber };
