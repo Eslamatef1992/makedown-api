@@ -4,6 +4,7 @@ const { Server: SocketIOServer } = require('socket.io');
 const app = require('./app');
 const env = require('./config/env');
 const { checkConnection } = require('./config/db');
+const { verifyAccessToken } = require('./utils/tokens');
 
 const server = http.createServer(app);
 
@@ -15,8 +16,21 @@ const io = new SocketIOServer(server, {
 app.set('io', io);
 
 io.on('connection', (socket) => {
-  // Placeholder — game and chat namespaces/handlers land here as those
-  // modules are built (see docs/PROJECT_PLAN.md).
+  // Chat: the client emits "auth" with its access token right after
+  // connecting; once verified we join a room named "user:<id>" so
+  // chat.controller.js can push a "chat:message" event straight to that
+  // user's open tabs/devices without anyone polling.
+  socket.on('auth', (token) => {
+    try {
+      const payload = verifyAccessToken(token);
+      socket.join(`user:${payload.sub}`);
+      socket.emit('auth:ok');
+    } catch {
+      socket.emit('auth:error', 'Invalid or expired token');
+    }
+  });
+
+  // Placeholder — live game namespaces/handlers land here (see docs/PROJECT_PLAN.md).
   socket.on('disconnect', () => {});
 });
 

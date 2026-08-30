@@ -46,4 +46,15 @@ module.exports = {
     password: process.env.MAIL_PASSWORD,
     from: process.env.MAIL_FROM || 'Make Down <no-reply@makedown.online>',
   },
+
+  // Where to send the browser back to after a hosted MyFatoorah payment page
+  // (the payment callback redirects here with a ?status=success|failed).
+  frontendUrl: process.env.FRONTEND_URL || 'https://www.makedown.online',
+
+  myfatoorah: {
+    apiKey: process.env.MYFATOORAH_API_KEY,
+    // apitest.myfatoorah.com for a test-mode API key, api.myfatoorah.com for live.
+    baseUrl: process.env.MYFATOORAH_BASE_URL || 'https://api.myfatoorah.com',
+    country: process.env.MYFATOORAH_COUNTRY || 'KWT',
+  },
 };
