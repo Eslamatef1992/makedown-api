@@ -7,7 +7,7 @@ website, e-commerce, packages, schools, admin panel).
 - Node.js + Express
 - MySQL (raw SQL via `mysql2/promise`, no ORM — see `sql/schema.sql`)
 - JWT auth (access + refresh tokens) with email OTP verification
-- Swagger / OpenAPI docs at `/api-docs`
+- Swagger / OpenAPI docs at `/swagger`
 - Socket.io wired up for the live game engine and chat (namespaces land as those modules are built)
 
 ## Local setup
@@ -19,7 +19,7 @@ npm run dev
 ```
 
 API: http://localhost:4000/api/v1
-Swagger UI: http://localhost:4000/api-docs
+Swagger UI: http://localhost:4000/swagger
 
 ## Project structure
 ```

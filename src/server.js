@@ -31,7 +31,7 @@ async function start() {
 
   server.listen(env.port, () => {
     console.log(`[server] Make Down API listening on port ${env.port} (${env.nodeEnv})`);
-    console.log(`[server] Swagger docs: ${env.apiBaseUrl}/api-docs`);
+    console.log(`[server] Swagger docs: ${env.apiBaseUrl}/swagger`);
   });
 }
 

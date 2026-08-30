@@ -28,8 +28,8 @@ app.use(
 
 app.get('/health', (req, res) => res.json({ status: 'ok', env: env.nodeEnv }));
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'Make Down API Docs' }));
-app.get('/api-docs.json', (req, res) => res.json(swaggerSpec));
+app.use('/swagger', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'Make Down API Docs' }));
+app.get('/swagger.json', (req, res) => res.json(swaggerSpec));
 
 app.use('/api/v1', routes);
 
