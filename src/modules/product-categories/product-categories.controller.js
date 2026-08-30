@@ -1,8 +1,9 @@
 const repo = require('./product-categories.repository');
 const { makeCrudController } = require('../../utils/crudController');
 const { mapBilingualField, requireBilingual } = require('../../utils/bilingual');
+const { slugify, ensureUniqueSlug } = require('../../utils/slugify');
 
-function transformInput(body, { isUpdate } = {}) {
+async function transformInput(body, { isUpdate } = {}) {
   const data = {};
   if (body.parentId !== undefined) data.parent_id = body.parentId || null;
   mapBilingualField(body, data, 'name', 'name');
@@ -11,6 +12,9 @@ function transformInput(body, { isUpdate } = {}) {
   if (body.sortOrder !== undefined) data.sort_order = body.sortOrder;
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
   requireBilingual(data, ['name'], isUpdate);
+  if (!isUpdate && !data.slug) {
+    data.slug = await ensureUniqueSlug(repo, slugify(data.name_en || 'category'));
+  }
   return data;
 }
 
