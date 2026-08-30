@@ -29,6 +29,7 @@ router.use('/admin/packages', require('../modules/packages/packages.routes'));
 // ---- Admin panel: get in touch + CMS ----
 router.use('/admin/contact-messages', require('../modules/contact/contact.routes'));
 router.use('/admin/cms', require('../modules/cms/cms.routes'));
+router.use('/admin/site-settings', require('../modules/site-settings/site-settings.routes'));
 
 // ---- Public (website) ----
 router.use('/schools', require('../modules/schools/schools.public.routes'));
@@ -37,6 +38,7 @@ router.use('/products', require('../modules/products/products.public.routes'));
 router.use('/packages', require('../modules/packages/packages.public.routes'));
 router.use('/contact-us', require('../modules/contact/contact.public.routes'));
 router.use('/', require('../modules/cms/cms.public.routes'));
+router.use('/site-settings', require('../modules/site-settings/site-settings.public.routes'));
 
 // Still to come: cart/checkout + payments, live game session play (Socket.io),
 // social (follows) + real-time chat send. See docs/PROJECT_PLAN.md.
