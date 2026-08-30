@@ -10,11 +10,11 @@ async function findUserById(id) {
   return rows[0] || null;
 }
 
-async function createUser({ uuid, fullName, email, phone, passwordHash }) {
+async function createUser({ uuid, fullName, firstName, lastName, birthDate, email, phone, passwordHash }) {
   const [result] = await pool.query(
-    `INSERT INTO users (uuid, full_name, email, phone, password_hash)
-     VALUES (?, ?, ?, ?, ?)`,
-    [uuid, fullName, email, phone || null, passwordHash]
+    `INSERT INTO users (uuid, full_name, first_name, last_name, birth_date, email, phone, password_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [uuid, fullName, firstName || null, lastName || null, birthDate || null, email, phone || null, passwordHash]
   );
   return findUserById(result.insertId);
 }

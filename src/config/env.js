@@ -34,7 +34,7 @@ module.exports = {
   },
 
   otp: {
-    length: Number(process.env.OTP_LENGTH) || 6,
+    length: Number(process.env.OTP_LENGTH) || 4,
     expiresMinutes: Number(process.env.OTP_EXPIRES_MINUTES) || 10,
   },
 

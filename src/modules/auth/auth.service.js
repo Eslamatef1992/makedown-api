@@ -18,6 +18,9 @@ function publicUser(user) {
     id: user.id,
     uuid: user.uuid,
     fullName: user.full_name,
+    firstName: user.first_name,
+    lastName: user.last_name,
+    birthDate: user.birth_date,
     email: user.email,
     phone: user.phone,
     avatarUrl: user.avatar_url,
@@ -34,14 +37,24 @@ async function issueOtp({ userId, email, purpose, name }) {
   await sendMail({ to: email, subject, text, html });
 }
 
-async function register({ fullName, email, phone, password }) {
+async function register({ firstName, lastName, email, phone, birthDate, password }) {
   const existing = await repo.findUserByEmail(email);
   if (existing) {
     throw ApiError.conflict('An account with this email already exists');
   }
 
+  const fullName = `${firstName} ${lastName}`.trim();
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await repo.createUser({ uuid: uuidv4(), fullName, email, phone, passwordHash });
+  const user = await repo.createUser({
+    uuid: uuidv4(),
+    fullName,
+    firstName,
+    lastName,
+    birthDate,
+    email,
+    phone,
+    passwordHash,
+  });
 
   await issueOtp({ userId: user.id, email, purpose: 'register', name: fullName });
 

@@ -1,10 +1,13 @@
 const Joi = require('joi');
 
 const register = Joi.object({
-  fullName: Joi.string().min(2).max(150).required(),
+  firstName: Joi.string().min(1).max(100).required(),
+  lastName: Joi.string().min(1).max(100).required(),
   email: Joi.string().email().required(),
-  phone: Joi.string().min(6).max(30).allow('', null),
+  phone: Joi.string().min(6).max(30).required(),
+  birthDate: Joi.date().iso().max('now').required(),
   password: Joi.string().min(8).max(100).required(),
+  acceptTerms: Joi.boolean().valid(true).required(),
 });
 
 const verifyOtp = Joi.object({
