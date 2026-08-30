@@ -6,6 +6,7 @@ router.use('/auth', require('../modules/auth/auth.routes'));
 // ---- Admin panel: auth + RBAC ----
 router.use('/admin/auth', require('../modules/admin-auth/admin-auth.routes'));
 router.use('/admin/dashboard', require('../modules/dashboard/dashboard.routes'));
+router.use('/admin/uploads', require('../modules/uploads/uploads.routes'));
 router.use('/admin/admins', require('../modules/admins/admins.routes'));
 router.use('/admin/roles', require('../modules/roles/roles.routes'));
 router.use('/admin/users', require('../modules/users/users.routes'));
