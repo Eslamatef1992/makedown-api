@@ -55,10 +55,10 @@ WHERE NOT EXISTS (SELECT 1 FROM admins WHERE email = 'admin@makedown.online');
 
 -- ---------- CMS pages (empty placeholders — edit content_html from the admin panel) ----------
 
-INSERT INTO cms_pages (slug, title, content_html) VALUES
-  ('about-us', 'About Us', '<p>Content coming soon.</p>'),
-  ('privacy-policy', 'Privacy Policy', '<p>Content coming soon.</p>'),
-  ('terms-and-conditions', 'Terms & Conditions', '<p>Content coming soon.</p>'),
-  ('return-policy', 'Return Policy', '<p>Content coming soon.</p>'),
-  ('how-it-works', 'How It Works', '<p>Content coming soon.</p>')
-ON DUPLICATE KEY UPDATE title = VALUES(title);
+INSERT INTO cms_pages (slug, title_en, title_ar, content_html_en, content_html_ar) VALUES
+  ('about-us', 'About Us', 'من نحن', '<p>Content coming soon.</p>', '<p>المحتوى قادم قريبًا.</p>'),
+  ('privacy-policy', 'Privacy Policy', 'سياسة الخصوصية', '<p>Content coming soon.</p>', '<p>المحتوى قادم قريبًا.</p>'),
+  ('terms-and-conditions', 'Terms & Conditions', 'الشروط والأحكام', '<p>Content coming soon.</p>', '<p>المحتوى قادم قريبًا.</p>'),
+  ('return-policy', 'Return Policy', 'سياسة الإرجاع', '<p>Content coming soon.</p>', '<p>المحتوى قادم قريبًا.</p>'),
+  ('how-it-works', 'How It Works', 'كيف يعمل', '<p>Content coming soon.</p>', '<p>المحتوى قادم قريبًا.</p>')
+ON DUPLICATE KEY UPDATE title_en = VALUES(title_en);

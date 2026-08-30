@@ -11,7 +11,7 @@ async function list({ page = 1, pageSize = 20, filters = {} } = {}) {
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 
   const [rows] = await pool.query(
-    `SELECT gs.*, q.title AS quiz_title, s.name AS school_name,
+    `SELECT gs.*, q.title_en AS quiz_title, s.name_en AS school_name,
             (SELECT COUNT(*) FROM game_participants gp WHERE gp.session_id = gs.id) AS participant_count
      FROM game_sessions gs
      LEFT JOIN quizzes q ON q.id = gs.quiz_id
@@ -27,7 +27,7 @@ async function list({ page = 1, pageSize = 20, filters = {} } = {}) {
 
 async function findById(id) {
   const [rows] = await pool.query(
-    `SELECT gs.*, q.title AS quiz_title, s.name AS school_name
+    `SELECT gs.*, q.title_en AS quiz_title, s.name_en AS school_name
      FROM game_sessions gs
      LEFT JOIN quizzes q ON q.id = gs.quiz_id
      LEFT JOIN schools s ON s.id = gs.school_id

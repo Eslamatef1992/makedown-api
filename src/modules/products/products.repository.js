@@ -1,7 +1,7 @@
 const { pool } = require('../../config/db');
 const { makeCrudRepository } = require('../../utils/crudFactory');
 
-const base = makeCrudRepository({ table: 'products', searchableColumns: ['name', 'slug'] });
+const base = makeCrudRepository({ table: 'products', searchableColumns: ['name_en', 'name_ar', 'slug'] });
 
 async function findBySlug(slug) {
   const [rows] = await pool.query('SELECT * FROM products WHERE slug = ? AND is_active = 1 LIMIT 1', [slug]);

@@ -120,7 +120,8 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS product_categories (
   id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   parent_id  INT UNSIGNED NULL,
-  name       VARCHAR(120) NOT NULL,
+  name_en    VARCHAR(120) NOT NULL,
+  name_ar    VARCHAR(120) NOT NULL DEFAULT '',
   slug       VARCHAR(150) NOT NULL UNIQUE,
   image_url  VARCHAR(500) NULL,
   sort_order INT NOT NULL DEFAULT 0,
@@ -131,9 +132,11 @@ CREATE TABLE IF NOT EXISTS product_categories (
 CREATE TABLE IF NOT EXISTS products (
   id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   category_id   INT UNSIGNED NULL,
-  name          VARCHAR(200) NOT NULL,
+  name_en       VARCHAR(200) NOT NULL,
+  name_ar       VARCHAR(200) NOT NULL DEFAULT '',
   slug          VARCHAR(220) NOT NULL UNIQUE,
-  description   TEXT NULL,
+  description_en TEXT NULL,
+  description_ar TEXT NULL,
   base_price    DECIMAL(10,3) NOT NULL DEFAULT 0,
   currency      CHAR(3) NOT NULL DEFAULT 'KWD',
   thumbnail_url VARCHAR(500) NULL,
@@ -225,8 +228,10 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE TABLE IF NOT EXISTS packages (
   id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name           VARCHAR(150) NOT NULL,
-  description    TEXT NULL,
+  name_en        VARCHAR(150) NOT NULL,
+  name_ar        VARCHAR(150) NOT NULL DEFAULT '',
+  description_en TEXT NULL,
+  description_ar TEXT NULL,
   price          DECIMAL(10,3) NOT NULL,
   currency       CHAR(3) NOT NULL DEFAULT 'KWD',
   credits        INT UNSIGNED NOT NULL DEFAULT 0,
@@ -255,7 +260,8 @@ CREATE TABLE IF NOT EXISTS user_packages (
 
 CREATE TABLE IF NOT EXISTS schools (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name          VARCHAR(200) NOT NULL,
+  name_en       VARCHAR(200) NOT NULL,
+  name_ar       VARCHAR(200) NOT NULL DEFAULT '',
   code          VARCHAR(30) NOT NULL UNIQUE,
   logo_url      VARCHAR(500) NULL,
   address       VARCHAR(255) NULL,
@@ -271,7 +277,8 @@ CREATE TABLE IF NOT EXISTS schools (
 CREATE TABLE IF NOT EXISTS game_categories (
   id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   parent_id  INT UNSIGNED NULL,
-  name       VARCHAR(120) NOT NULL,
+  name_en    VARCHAR(120) NOT NULL,
+  name_ar    VARCHAR(120) NOT NULL DEFAULT '',
   slug       VARCHAR(150) NOT NULL UNIQUE,
   icon_url   VARCHAR(500) NULL,
   sort_order INT NOT NULL DEFAULT 0,
@@ -282,8 +289,10 @@ CREATE TABLE IF NOT EXISTS game_categories (
 CREATE TABLE IF NOT EXISTS quizzes (
   id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   category_id         INT UNSIGNED NULL,
-  title               VARCHAR(200) NOT NULL,
-  description         TEXT NULL,
+  title_en            VARCHAR(200) NOT NULL,
+  title_ar            VARCHAR(200) NOT NULL DEFAULT '',
+  description_en      TEXT NULL,
+  description_ar      TEXT NULL,
   cover_image_url     VARCHAR(500) NULL,
   difficulty          ENUM('easy','medium','hard') NOT NULL DEFAULT 'easy',
   created_by_admin_id BIGINT UNSIGNED NULL,
@@ -297,9 +306,11 @@ CREATE TABLE IF NOT EXISTS quizzes (
 CREATE TABLE IF NOT EXISTS quiz_questions (
   id                   BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   quiz_id              BIGINT UNSIGNED NOT NULL,
-  question_text        VARCHAR(500) NOT NULL,
+  question_text_en     VARCHAR(500) NOT NULL,
+  question_text_ar     VARCHAR(500) NOT NULL DEFAULT '',
   question_image_url   VARCHAR(500) NULL,
-  options_json         JSON NOT NULL,
+  options_json_en      JSON NOT NULL,
+  options_json_ar      JSON NULL,
   correct_option_index TINYINT UNSIGNED NOT NULL,
   points               INT UNSIGNED NOT NULL DEFAULT 100,
   time_limit_seconds   INT UNSIGNED NOT NULL DEFAULT 20,
@@ -404,8 +415,10 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE TABLE IF NOT EXISTS cms_pages (
   id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   slug                VARCHAR(80) NOT NULL UNIQUE,
-  title               VARCHAR(200) NOT NULL,
-  content_html        LONGTEXT NULL,
+  title_en            VARCHAR(200) NOT NULL,
+  title_ar            VARCHAR(200) NOT NULL DEFAULT '',
+  content_html_en     LONGTEXT NULL,
+  content_html_ar     LONGTEXT NULL,
   updated_by_admin_id BIGINT UNSIGNED NULL,
   updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_cms_admin FOREIGN KEY (updated_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
@@ -413,8 +426,10 @@ CREATE TABLE IF NOT EXISTS cms_pages (
 
 CREATE TABLE IF NOT EXISTS faqs (
   id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  question   VARCHAR(300) NOT NULL,
-  answer     TEXT NOT NULL,
+  question_en VARCHAR(300) NOT NULL,
+  question_ar VARCHAR(300) NOT NULL DEFAULT '',
+  answer_en  TEXT NOT NULL,
+  answer_ar  TEXT NOT NULL DEFAULT '',
   sort_order INT NOT NULL DEFAULT 0,
   is_active  TINYINT(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

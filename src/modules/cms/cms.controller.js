@@ -2,6 +2,7 @@ const repo = require('./cms.repository');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
+const { mapBilingualField, requireBilingual } = require('../../utils/bilingual');
 
 // ---- pages ----
 const listPages = asyncHandler(async (req, res) => ok(res, await repo.listPages()));
@@ -16,9 +17,10 @@ const updatePage = asyncHandler(async (req, res) => {
   const existing = await repo.findPageBySlug(req.params.slug);
   if (!existing) throw ApiError.notFound('Page not found');
   const data = {};
-  if (req.body.title !== undefined) data.title = req.body.title;
-  if (req.body.contentHtml !== undefined) data.content_html = req.body.contentHtml;
+  mapBilingualField(req.body, data, 'title', 'title');
+  mapBilingualField(req.body, data, 'contentHtml', 'content_html');
   if (req.admin) data.updated_by_admin_id = req.admin.id;
+  requireBilingual(data, ['title'], true);
   const page = await repo.updatePage(req.params.slug, data);
   ok(res, page, 'Updated');
 });
@@ -27,12 +29,14 @@ const updatePage = asyncHandler(async (req, res) => {
 const listFaqs = asyncHandler(async (req, res) => ok(res, await repo.listFaqs()));
 
 const createFaq = asyncHandler(async (req, res) => {
-  const item = await repo.createFaq({
-    question: req.body.question,
-    answer: req.body.answer,
+  const data = {
     sort_order: req.body.sortOrder ?? 0,
     is_active: req.body.isActive === false ? 0 : 1,
-  });
+  };
+  mapBilingualField(req.body, data, 'question', 'question');
+  mapBilingualField(req.body, data, 'answer', 'answer');
+  requireBilingual(data, ['question', 'answer']);
+  const item = await repo.createFaq(data);
   created(res, item);
 });
 
@@ -40,10 +44,11 @@ const updateFaq = asyncHandler(async (req, res) => {
   const existing = await repo.findFaqById(req.params.id);
   if (!existing) throw ApiError.notFound('FAQ not found');
   const data = {};
-  if (req.body.question !== undefined) data.question = req.body.question;
-  if (req.body.answer !== undefined) data.answer = req.body.answer;
+  mapBilingualField(req.body, data, 'question', 'question');
+  mapBilingualField(req.body, data, 'answer', 'answer');
   if (req.body.sortOrder !== undefined) data.sort_order = req.body.sortOrder;
   if (req.body.isActive !== undefined) data.is_active = req.body.isActive ? 1 : 0;
+  requireBilingual(data, ['question', 'answer'], true);
   const item = await repo.updateFaq(req.params.id, data);
   ok(res, item, 'Updated');
 });
@@ -55,7 +60,7 @@ const deleteFaq = asyncHandler(async (req, res) => {
   ok(res, null, 'Deleted');
 });
 
-// ---- social links ----
+// ---- social links (platform/url are language-neutral identifiers) ----
 const listSocialLinks = asyncHandler(async (req, res) => ok(res, await repo.listSocialLinks()));
 
 const createSocialLink = asyncHandler(async (req, res) => {

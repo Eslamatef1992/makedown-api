@@ -1,7 +1,7 @@
 const { pool } = require('../../config/db');
 const { makeCrudRepository } = require('../../utils/crudFactory');
 
-const base = makeCrudRepository({ table: 'quizzes', searchableColumns: ['title', 'description'] });
+const base = makeCrudRepository({ table: 'quizzes', searchableColumns: ['title_en', 'title_ar', 'description_en', 'description_ar'] });
 
 async function listQuestions(quizId) {
   const [rows] = await pool.query('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order ASC, id ASC', [quizId]);
@@ -29,8 +29,8 @@ async function deleteQuestion(id) {
 
 async function withCategory(quiz) {
   if (!quiz) return quiz;
-  const [rows] = await pool.query('SELECT name FROM game_categories WHERE id = ?', [quiz.category_id]);
-  return { ...quiz, category_name: rows[0]?.name || null };
+  const [rows] = await pool.query('SELECT name_en, name_ar FROM game_categories WHERE id = ?', [quiz.category_id]);
+  return { ...quiz, category_name_en: rows[0]?.name_en || null, category_name_ar: rows[0]?.name_ar || null };
 }
 
 module.exports = { ...base, listQuestions, findQuestionById, createQuestion, updateQuestion, deleteQuestion, withCategory };

@@ -3,17 +3,19 @@ const { makeCrudController } = require('../../utils/crudController');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
+const { mapBilingualField, requireBilingual } = require('../../utils/bilingual');
 
-function transformInput(body) {
+function transformInput(body, { isUpdate } = {}) {
   const data = {};
   if (body.categoryId !== undefined) data.category_id = body.categoryId || null;
-  if (body.name !== undefined) data.name = body.name;
+  mapBilingualField(body, data, 'name', 'name');
   if (body.slug !== undefined) data.slug = body.slug;
-  if (body.description !== undefined) data.description = body.description;
+  mapBilingualField(body, data, 'description', 'description');
   if (body.basePrice !== undefined) data.base_price = body.basePrice;
   if (body.currency !== undefined) data.currency = body.currency;
   if (body.thumbnailUrl !== undefined) data.thumbnail_url = body.thumbnailUrl;
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
+  requireBilingual(data, ['name'], isUpdate);
   return data;
 }
 
