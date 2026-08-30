@@ -429,7 +429,7 @@ CREATE TABLE IF NOT EXISTS faqs (
   question_en VARCHAR(300) NOT NULL,
   question_ar VARCHAR(300) NOT NULL DEFAULT '',
   answer_en  TEXT NOT NULL,
-  answer_ar  TEXT NOT NULL DEFAULT '',
+  answer_ar  TEXT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   is_active  TINYINT(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

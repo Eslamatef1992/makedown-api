@@ -59,4 +59,4 @@ ALTER TABLE faqs
   RENAME COLUMN question TO question_en,
   ADD COLUMN question_ar VARCHAR(300) NOT NULL DEFAULT '' AFTER question_en,
   RENAME COLUMN answer TO answer_en,
-  ADD COLUMN answer_ar TEXT NOT NULL DEFAULT '' AFTER answer_en;
+  ADD COLUMN answer_ar TEXT NULL AFTER answer_en;
