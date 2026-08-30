@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const env = require('../config/env');
 
 const register = Joi.object({
   firstName: Joi.string().min(1).max(100).required(),
@@ -12,7 +13,7 @@ const register = Joi.object({
 
 const verifyOtp = Joi.object({
   email: Joi.string().email().required(),
-  code: Joi.string().length(6).required(),
+  code: Joi.string().length(env.otp.length).required(),
   purpose: Joi.string().valid('register', 'login', 'reset_password', 'change_email').default('register'),
 });
 
@@ -37,7 +38,7 @@ const forgotPassword = Joi.object({
 
 const resetPassword = Joi.object({
   email: Joi.string().email().required(),
-  code: Joi.string().length(6).required(),
+  code: Joi.string().length(env.otp.length).required(),
   newPassword: Joi.string().min(8).max(100).required(),
 });
 
