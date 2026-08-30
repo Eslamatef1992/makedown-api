@@ -49,7 +49,7 @@ ON DUPLICATE KEY UPDATE role_id = role_id;
 
 INSERT INTO admins (name, email, password_hash, role_id, is_active)
 SELECT 'Super Admin', 'admin@makedown.online',
-       '$2a$10$8K1p/a0dURXAmZ8Vgm/2C.HgWDYzO0O5vLGl6QQ0mBcMLb7t3nz6a',
+       '$2b$10$edURFfQ9m5FHJi0yo5RgS.vY4.c8/UWv6u85yD1T79HUIG1V/I1mu',
        (SELECT id FROM roles WHERE name = 'Super Admin'), 1
 WHERE NOT EXISTS (SELECT 1 FROM admins WHERE email = 'admin@makedown.online');
 
