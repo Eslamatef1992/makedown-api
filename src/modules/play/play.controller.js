@@ -126,7 +126,8 @@ const listPlayableQuizzes = asyncHandler(async (req, res) => {
     params.push(mode);
   }
   const [rows] = await pool.query(
-    `SELECT q.id, q.title_en, q.title_ar, q.cover_image_url, q.difficulty, q.category_id, q.supported_modes,
+    `SELECT q.id, q.title_en, q.title_ar, q.description_en, q.description_ar, q.cover_image_url,
+            q.difficulty, q.category_id, q.supported_modes,
             gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
             (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count
      FROM quizzes q
