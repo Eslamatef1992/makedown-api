@@ -29,18 +29,18 @@ const publicList = asyncHandler(async (req, res) => {
   ok(res, await repo.listActive());
 });
 
-// Buy a package — cash is recorded the same honest way product checkout
-// works (order placed, credits granted, nothing pretends a payment gateway
-// ran). KNET / Credit Card redirect to a real MyFatoorah hosted payment
-// page; credits are only granted once payments/myfatoorah/callback confirms
-// the payment actually went through.
+// Buy a package — packages are a digital good activated instantly, so
+// (unlike product checkout) cash on delivery is not offered: only KNET /
+// Credit Card, which redirect to a real MyFatoorah hosted payment page.
+// Credits are only granted once payments/myfatoorah/callback confirms the
+// payment actually went through.
 const purchase = asyncHandler(async (req, res) => {
   const pkg = await repo.findById(req.params.id);
   if (!pkg || !pkg.is_active) throw ApiError.notFound('Package not found');
 
   const { paymentMethod } = req.body;
-  if (!['knet', 'credit_card', 'cash'].includes(paymentMethod)) {
-    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card, cash');
+  if (!['knet', 'credit_card'].includes(paymentMethod)) {
+    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card');
   }
 
   const order = await ordersRepo.create({
@@ -66,17 +66,6 @@ const purchase = asyncHandler(async (req, res) => {
       line_total: pkg.price,
     },
   ]);
-
-  if (paymentMethod === 'cash') {
-    await ordersRepo.updateStatus(order.id, { status: 'processing', payment_status: 'unpaid' });
-    const userPackage = await repo.createUserPackage({
-      userId: req.user.id,
-      packageId: pkg.id,
-      orderId: order.id,
-      credits: Number(pkg.credits || 0) + Number(pkg.free_credits || 0),
-    });
-    return created(res, { order, userPackage, redirectUrl: null }, 'Package order placed — pay in cash to confirm');
-  }
 
   const methods = await myfatoorah.initiatePayment(pkg.price, pkg.currency);
   const matcher = paymentMethod === 'knet' ? /knet/i : /visa|master|card/i;
