@@ -1,6 +1,7 @@
 const repo = require('./packages.repository');
 const ordersRepo = require('../orders/orders.repository');
 const usersRepo = require('../users/users.repository');
+const siteSettingsRepo = require('../site-settings/site-settings.repository');
 const myfatoorah = require('../../services/myfatoorah.service');
 const env = require('../../config/env');
 const { makeCrudController } = require('../../utils/crudController');
@@ -8,6 +9,8 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
 const { mapBilingualField, requireBilingual } = require('../../utils/bilingual');
+
+const COD_PACKAGES_KEY = 'cod_enabled_packages'; // must match site-settings.controller.js
 
 function transformInput(body, { isUpdate } = {}) {
   const data = {};
@@ -29,18 +32,26 @@ const publicList = asyncHandler(async (req, res) => {
   ok(res, await repo.listActive());
 });
 
-// Buy a package — packages are a digital good activated instantly, so
-// (unlike product checkout) cash on delivery is not offered: only KNET /
-// Credit Card, which redirect to a real MyFatoorah hosted payment page.
-// Credits are only granted once payments/myfatoorah/callback confirms the
-// payment actually went through.
+// Buy a package — packages are a digital good activated instantly, so cash
+// is off by default (unlike product checkout, where it preserves the old
+// always-on behavior), but a super admin can turn it on per
+// site-settings.controller.js's cash-on-delivery toggle. KNET / Credit Card
+// always redirect to a real MyFatoorah hosted payment page; credits are
+// only granted once payments/myfatoorah/callback confirms the payment
+// actually went through. Cash orders are granted immediately, same as
+// product checkout's cash branch — no gateway step to wait for.
 const purchase = asyncHandler(async (req, res) => {
   const pkg = await repo.findById(req.params.id);
   if (!pkg || !pkg.is_active) throw ApiError.notFound('Package not found');
 
   const { paymentMethod } = req.body;
-  if (!['knet', 'credit_card'].includes(paymentMethod)) {
-    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card');
+  if (!['knet', 'credit_card', 'cash'].includes(paymentMethod)) {
+    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card, cash');
+  }
+  if (paymentMethod === 'cash') {
+    const codSetting = await siteSettingsRepo.getValue(COD_PACKAGES_KEY);
+    const codEnabled = codSetting === '1'; // unset = off, packages don't offer cash unless explicitly enabled
+    if (!codEnabled) throw ApiError.badRequest('Cash on delivery is not available for packages right now');
   }
 
   const order = await ordersRepo.create({
@@ -66,6 +77,17 @@ const purchase = asyncHandler(async (req, res) => {
       line_total: pkg.price,
     },
   ]);
+
+  if (paymentMethod === 'cash') {
+    await ordersRepo.updateStatus(order.id, { status: 'processing', payment_status: 'unpaid' });
+    const userPackage = await repo.createUserPackage({
+      userId: req.user.id,
+      packageId: pkg.id,
+      orderId: order.id,
+      credits: Number(pkg.credits || 0) + Number(pkg.free_credits || 0),
+    });
+    return created(res, { order, userPackage, redirectUrl: null }, 'Package order placed — pay in cash to confirm');
+  }
 
   const methods = await myfatoorah.initiatePayment(pkg.price, pkg.currency);
   const matcher = paymentMethod === 'knet' ? /knet/i : /visa|master|card/i;

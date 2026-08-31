@@ -9,6 +9,13 @@ const CONTACT_INFO_KEYS = {
   supportEmail: 'contact_support_email',
   phone: 'contact_phone',
 };
+// Cash on delivery toggles — one per checkout flow, since a package is a
+// digital good (instant activation) and a product is a physical delivery,
+// so a store might reasonably want them independent. Products default ON
+// (matches the behavior before this toggle existed); packages default OFF
+// (packages don't offer cash unless a super admin explicitly turns it on).
+const COD_PRODUCTS_KEY = 'cod_enabled_products';
+const COD_PACKAGES_KEY = 'cod_enabled_packages';
 
 const adminGetHomeVideo = asyncHandler(async (req, res) => {
   const url = await repo.getValue(HOME_VIDEO_KEY);
@@ -68,6 +75,30 @@ const publicGetContactInfo = asyncHandler(async (req, res) => {
   ok(res, await readContactInfo());
 });
 
+async function readCod() {
+  const [products, packages] = await Promise.all([repo.getValue(COD_PRODUCTS_KEY), repo.getValue(COD_PACKAGES_KEY)]);
+  return {
+    products: products === null ? true : products === '1',
+    packages: packages === null ? false : packages === '1',
+  };
+}
+
+const adminGetCod = asyncHandler(async (req, res) => {
+  ok(res, await readCod());
+});
+
+const adminSetCod = asyncHandler(async (req, res) => {
+  const writes = [];
+  if (req.body.products !== undefined) writes.push(repo.setValue(COD_PRODUCTS_KEY, req.body.products ? '1' : '0'));
+  if (req.body.packages !== undefined) writes.push(repo.setValue(COD_PACKAGES_KEY, req.body.packages ? '1' : '0'));
+  await Promise.all(writes);
+  ok(res, await readCod(), 'Saved');
+});
+
+const publicGetCod = asyncHandler(async (req, res) => {
+  ok(res, await readCod());
+});
+
 module.exports = {
   adminGetHomeVideo,
   adminSetHomeVideo,
@@ -78,4 +109,9 @@ module.exports = {
   adminGetContactInfo,
   adminSetContactInfo,
   publicGetContactInfo,
+  adminGetCod,
+  adminSetCod,
+  publicGetCod,
+  COD_PRODUCTS_KEY,
+  COD_PACKAGES_KEY,
 };

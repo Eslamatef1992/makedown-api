@@ -26,5 +26,7 @@ router.get('/delivery-fee', controller.adminGetDeliveryFee);
 router.put('/delivery-fee', controller.adminSetDeliveryFee);
 router.get('/contact-info', controller.adminGetContactInfo);
 router.put('/contact-info', controller.adminSetContactInfo);
+router.get('/cash-on-delivery', controller.adminGetCod);
+router.put('/cash-on-delivery', controller.adminSetCod);
 
 module.exports = router;

@@ -12,5 +12,6 @@ const controller = require('./site-settings.controller');
 router.get('/home-video', controller.publicGetHomeVideo);
 router.get('/delivery-fee', controller.publicGetDeliveryFee);
 router.get('/contact-info', controller.publicGetContactInfo);
+router.get('/cash-on-delivery', controller.publicGetCod);
 
 module.exports = router;

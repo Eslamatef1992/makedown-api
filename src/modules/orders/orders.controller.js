@@ -12,6 +12,7 @@ const myfatoorah = require('../../services/myfatoorah.service');
 const env = require('../../config/env');
 
 const DELIVERY_FEE_KEY = 'order_delivery_fee'; // must match site-settings.controller.js
+const COD_PRODUCTS_KEY = 'cod_enabled_products'; // must match site-settings.controller.js
 
 const list = asyncHandler(async (req, res) => {
   const { page, pageSize, status, payment_status, guest } = req.query;
@@ -75,6 +76,15 @@ const checkout = asyncHandler(async (req, res) => {
 
   if (!req.user && (!guestEmail || !guestName)) {
     throw ApiError.badRequest('Guest checkout requires guestName and guestEmail');
+  }
+
+  if (!['knet', 'credit_card', 'cash'].includes(paymentMethod)) {
+    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card, cash');
+  }
+  if (paymentMethod === 'cash') {
+    const codSetting = await siteSettingsRepo.getValue(COD_PRODUCTS_KEY);
+    const codEnabled = codSetting === null ? true : codSetting === '1'; // unset = on, preserves pre-toggle behavior
+    if (!codEnabled) throw ApiError.badRequest('Cash on delivery is not available right now');
   }
 
   let subtotal = 0;
