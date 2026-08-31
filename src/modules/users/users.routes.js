@@ -30,13 +30,22 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *     responses: { 200: { description: User } }
  *   patch:
  *     tags: [Users]
- *     summary: Toggle a user's active / special-user status
+ *     summary: Toggle a user's active / special-user status, or edit a special user's profile
  *     security: [{ bearerAuth: [] }]
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     requestBody:
  *       content:
  *         application/json:
- *           schema: { type: object, properties: { isActive: { type: boolean }, isSpecial: { type: boolean } } }
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isActive: { type: boolean }
+ *               isSpecial: { type: boolean }
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               phone: { type: string }
+ *               followersCount: { type: integer }
+ *               followingCount: { type: integer }
  *     responses: { 200: { description: Updated } }
  *   post:
  *     tags: [Users]
@@ -52,6 +61,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *               firstName: { type: string }
  *               lastName: { type: string }
  *               email: { type: string }
+ *               phone: { type: string }
  *               password: { type: string }
  *               followersCount: { type: integer }
  *               followingCount: { type: integer }

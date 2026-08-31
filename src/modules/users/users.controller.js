@@ -11,11 +11,20 @@ function serialize(user) {
   return rest;
 }
 
-// Admin can only toggle status flags here — not edit identity/password.
+// Admin can toggle status flags and edit a special user's basic profile
+// fields here — password/email stay out of this endpoint on purpose.
 function transformInput(body) {
   const data = {};
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
   if (body.isSpecial !== undefined) data.is_special = body.isSpecial ? 1 : 0;
+  if (body.firstName !== undefined) data.first_name = body.firstName;
+  if (body.lastName !== undefined) data.last_name = body.lastName;
+  if (body.firstName !== undefined && body.lastName !== undefined) {
+    data.full_name = `${body.firstName} ${body.lastName}`.trim();
+  }
+  if (body.phone !== undefined) data.phone = body.phone || null;
+  if (body.followersCount !== undefined) data.followers_count = Number(body.followersCount) || 0;
+  if (body.followingCount !== undefined) data.following_count = Number(body.followingCount) || 0;
   return data;
 }
 
