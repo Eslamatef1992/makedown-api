@@ -334,6 +334,7 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   question_text_ar     VARCHAR(500) NOT NULL DEFAULT '',
   question_image_url   VARCHAR(500) NULL,
   question_type        ENUM('text','image','qr','audio') NOT NULL DEFAULT 'text',
+  mode                  ENUM('solo','team','both') NOT NULL DEFAULT 'both',
   media_url             VARCHAR(500) NULL,
   options_json_en      JSON NOT NULL,
   options_json_ar      JSON NULL,

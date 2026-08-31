@@ -127,6 +127,12 @@ async function findParticipantById(participantId) {
 // questions as point tiles. `used` reflects whether that tile already has a
 // game_answers row (already played, can't be picked again).
 async function getBoard(sessionId) {
+  const [sessionRows] = await pool.query('SELECT mode FROM game_sessions WHERE id = ? LIMIT 1', [sessionId]);
+  // A question authored as Solo-only or Team-only only shows up on a board
+  // for a matching session; 'both' (the default) always shows. A 'random'
+  // session is treated like solo for this filter.
+  const sessionMode = sessionRows[0]?.mode === 'team' ? 'team' : 'solo';
+
   const [quizzes] = await pool.query(
     `SELECT q.id, q.title_en, q.title_ar, q.category_id, gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
             gsc.sort_order
@@ -141,8 +147,8 @@ async function getBoard(sessionId) {
 
   const quizIds = quizzes.map((q) => q.id);
   const [questions] = await pool.query(
-    `SELECT * FROM quiz_questions WHERE quiz_id IN (?) ORDER BY quiz_id ASC, points ASC, sort_order ASC`,
-    [quizIds]
+    `SELECT * FROM quiz_questions WHERE quiz_id IN (?) AND mode IN ('both', ?) ORDER BY quiz_id ASC, points ASC, sort_order ASC`,
+    [quizIds, sessionMode]
   );
   const [usedRows] = await pool.query(
     `SELECT DISTINCT question_id FROM game_answers WHERE session_id = ?`,
