@@ -37,11 +37,19 @@ const optionalAuth = require('../../middlewares/optionalAuth.middleware');
  *     summary: List who a user is following
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     responses: { 200: { description: Paginated list } }
+ * /users/me/followers/{followerId}:
+ *   delete:
+ *     tags: [Social]
+ *     summary: Remove someone from my followers (they no longer follow me)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: followerId, required: true, schema: { type: integer } }]
+ *     responses: { 200: { description: Follower removed } }
  */
+router.delete('/me/followers/:followerId', requireAuth, controller.removeFollower);
 router.get('/:id', optionalAuth, controller.getProfile);
 router.post('/:id/follow', requireAuth, controller.followUser);
 router.delete('/:id/follow', requireAuth, controller.unfollowUser);
-router.get('/:id/followers', controller.listFollowers);
-router.get('/:id/following', controller.listFollowing);
+router.get('/:id/followers', optionalAuth, controller.listFollowers);
+router.get('/:id/following', optionalAuth, controller.listFollowing);
 
 module.exports = router;

@@ -2,10 +2,19 @@ const { pool } = require('../../config/db');
 
 async function findPublicUser(id) {
   const [rows] = await pool.query(
-    'SELECT id, full_name, avatar_url, bio, created_at FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+    'SELECT id, full_name, avatar_url, bio, created_at, followers_count, following_count FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
     [id]
   );
   return rows[0] || null;
+}
+
+// Which of `targetIds` does `viewerId` already follow? Used to decide, per
+// row in someone's followers/following list, whether to show "Follow" or
+// "Remove"/"Unfollow" for the viewer.
+async function isFollowingBulk(viewerId, targetIds) {
+  if (!viewerId || !targetIds.length) return new Set();
+  const [rows] = await pool.query('SELECT following_id FROM follows WHERE follower_id = ? AND following_id IN (?)', [viewerId, targetIds]);
+  return new Set(rows.map((r) => r.following_id));
 }
 
 async function isFollowing(followerId, followingId) {
@@ -65,6 +74,7 @@ async function listFollowing(userId, { page = 1, pageSize = 20 } = {}) {
 module.exports = {
   findPublicUser,
   isFollowing,
+  isFollowingBulk,
   follow,
   unfollow,
   countFollowers,

@@ -11,11 +11,17 @@ const getProfile = asyncHandler(async (req, res) => {
   const targetId = Number(req.params.id);
   const user = await repo.findPublicUser(targetId);
   if (!user) throw ApiError.notFound('User not found');
-  const [followersCount, followingCount, isFollowedByMe] = await Promise.all([
+  const [liveFollowersCount, liveFollowingCount, isFollowedByMe] = await Promise.all([
     repo.countFollowers(targetId),
     repo.countFollowing(targetId),
     req.user ? repo.isFollowing(req.user.id, targetId) : Promise.resolve(false),
   ]);
+  // `users.followers_count`/`following_count` are an admin-set baseline
+  // (used e.g. to seed a "special" user's profile so it doesn't look
+  // brand new) layered underneath the real, live-counted `follows` rows —
+  // the two are additive, not alternatives.
+  const followersCount = (user.followers_count || 0) + liveFollowersCount;
+  const followingCount = (user.following_count || 0) + liveFollowingCount;
   ok(res, { ...publicUser(user), followersCount, followingCount, isFollowedByMe, isMe: req.user?.id === targetId });
 });
 
@@ -34,6 +40,15 @@ const unfollowUser = asyncHandler(async (req, res) => {
   ok(res, { following: false }, 'Unfollowed');
 });
 
+// Remove someone who follows ME from my followers list (the reverse
+// direction of unfollowUser — they keep following whoever else they like,
+// this just deletes the follows row where they follow *me*).
+const removeFollower = asyncHandler(async (req, res) => {
+  const followerId = Number(req.params.followerId);
+  await repo.unfollow(followerId, req.user.id);
+  ok(res, { removed: true }, 'Follower removed');
+});
+
 function withFollowedAt(row) {
   return { ...publicUser(row), followedAt: row.followed_at };
 }
@@ -41,7 +56,8 @@ function withFollowedAt(row) {
 const listFollowers = asyncHandler(async (req, res) => {
   const { page, pageSize } = req.query;
   const result = await repo.listFollowers(Number(req.params.id), { page, pageSize });
-  ok(res, { ...result, rows: result.rows.map(withFollowedAt) });
+  const followedIds = req.user ? await repo.isFollowingBulk(req.user.id, result.rows.map((r) => r.id)) : new Set();
+  ok(res, { ...result, rows: result.rows.map((row) => ({ ...withFollowedAt(row), isFollowedByMe: followedIds.has(row.id) })) });
 });
 
 const listFollowing = asyncHandler(async (req, res) => {
@@ -50,4 +66,4 @@ const listFollowing = asyncHandler(async (req, res) => {
   ok(res, { ...result, rows: result.rows.map(withFollowedAt) });
 });
 
-module.exports = { getProfile, followUser, unfollowUser, listFollowers, listFollowing };
+module.exports = { getProfile, followUser, unfollowUser, removeFollower, listFollowers, listFollowing };
