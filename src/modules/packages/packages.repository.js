@@ -10,17 +10,15 @@ async function listActive() {
 
 // ---- user_packages (a customer's purchased credit packages) ----
 
-async function createUserPackage({ userId, packageId, orderId, credits, validityDays }) {
-  const expiresAt = validityDays
-    ? new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
-    : null;
+// Packages are purely game-count based — no date expiry. A package stays
+// usable until its credits run out, however long that takes.
+async function createUserPackage({ userId, packageId, orderId, credits }) {
   const [result] = await pool.query('INSERT INTO user_packages SET ?', [
     {
       user_id: userId,
       package_id: packageId,
       order_id: orderId,
       credits_remaining: credits,
-      expires_at: expiresAt,
       status: 'active',
     },
   ]);
@@ -69,16 +67,15 @@ async function claimFreeGame(userId) {
   return result.affectedRows > 0;
 }
 
-// Atomically spends one credit from whichever of the user's active,
-// unexpired packages is closest to expiring (use-it-or-lose-it order).
-// Returns the user_package row it drew from, or null if the user has no
-// usable credits at all.
+// Atomically spends one credit from the user's oldest active package with
+// credits left (FIFO — no date expiry involved, packages are purely
+// game-count based). Returns the user_package row it drew from, or null if
+// the user has no usable credits at all.
 async function consumeActivePackageCredit(userId) {
   const [candidates] = await pool.query(
     `SELECT id FROM user_packages
      WHERE user_id = ? AND status = 'active' AND credits_remaining > 0
-       AND (expires_at IS NULL OR expires_at > NOW())
-     ORDER BY (expires_at IS NULL) ASC, expires_at ASC, purchased_at ASC
+     ORDER BY purchased_at ASC
      LIMIT 1`,
     [userId]
   );

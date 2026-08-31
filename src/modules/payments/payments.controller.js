@@ -77,7 +77,6 @@ const myFatoorahCallback = asyncHandler(async (req, res) => {
           packageId: pkg.id,
           orderId: order.id,
           credits: Number(pkg.credits || 0) + Number(pkg.free_credits || 0),
-          validityDays: pkg.validity_days,
         });
       }
     }
