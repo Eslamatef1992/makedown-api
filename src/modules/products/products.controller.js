@@ -37,15 +37,34 @@ const addVariant = asyncHandler(async (req, res) => {
   const product = await repo.findById(req.params.id);
   if (!product) throw ApiError.notFound('Product not found');
   const b = req.body;
-  const variant = await repo.createVariant(req.params.id, {
-    sku: b.sku,
-    attributes_json: JSON.stringify(b.attributes || {}),
-    price: b.price,
-    compare_at_price: b.compareAtPrice || null,
-    stock_quantity: b.stockQuantity ?? 0,
-    is_active: b.isActive === false ? 0 : 1,
-  });
-  created(res, variant);
+  if (b.price === undefined || b.price === null || b.price === '') {
+    throw ApiError.badRequest('Price is required');
+  }
+
+  // SKU has a UNIQUE constraint — an admin leaving it blank (or reusing one)
+  // used to 500 on the second attempt. Auto-generate one from the product's
+  // slug when it's left blank, same as the "Generate variants" flow does.
+  let sku = (b.sku || '').trim();
+  if (!sku) {
+    sku = `${product.slug}-${Date.now().toString(36)}`.toUpperCase();
+  }
+
+  try {
+    const variant = await repo.createVariant(req.params.id, {
+      sku,
+      attributes_json: JSON.stringify(b.attributes || {}),
+      price: b.price,
+      compare_at_price: b.compareAtPrice || null,
+      stock_quantity: b.stockQuantity ?? 0,
+      is_active: b.isActive === false ? 0 : 1,
+    });
+    created(res, variant);
+  } catch (err) {
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      throw ApiError.badRequest('That SKU is already in use by another variant.');
+    }
+    throw err;
+  }
 });
 
 const updateVariant = asyncHandler(async (req, res) => {
@@ -53,14 +72,21 @@ const updateVariant = asyncHandler(async (req, res) => {
   if (!existing) throw ApiError.notFound('Variant not found');
   const b = req.body;
   const data = {};
-  if (b.sku !== undefined) data.sku = b.sku;
+  if (b.sku !== undefined && b.sku.trim()) data.sku = b.sku.trim();
   if (b.attributes !== undefined) data.attributes_json = JSON.stringify(b.attributes);
   if (b.price !== undefined) data.price = b.price;
   if (b.compareAtPrice !== undefined) data.compare_at_price = b.compareAtPrice;
   if (b.stockQuantity !== undefined) data.stock_quantity = b.stockQuantity;
   if (b.isActive !== undefined) data.is_active = b.isActive ? 1 : 0;
-  const variant = await repo.updateVariant(req.params.variantId, data);
-  ok(res, variant, 'Updated');
+  try {
+    const variant = await repo.updateVariant(req.params.variantId, data);
+    ok(res, variant, 'Updated');
+  } catch (err) {
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      throw ApiError.badRequest('That SKU is already in use by another variant.');
+    }
+    throw err;
+  }
 });
 
 const deleteVariant = asyncHandler(async (req, res) => {

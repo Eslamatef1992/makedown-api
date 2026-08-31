@@ -98,16 +98,28 @@ async function requireParticipant(sessionId, userId) {
 // ---------------------------------------------------------------------------
 
 const listPlayableQuizzes = asyncHandler(async (req, res) => {
+  // `mode` ('solo' | 'team') comes from the website's Solo/Team picker —
+  // only offer games the admin marked as supporting that mode (or 'both').
+  const mode = ['solo', 'team'].includes(req.query.mode) ? req.query.mode : null;
+  const params = [];
+  let where = 'q.is_active = 1';
+  if (req.query.category_id) {
+    where += ' AND q.category_id = ?';
+    params.push(req.query.category_id);
+  }
+  if (mode) {
+    where += " AND (q.supported_modes = 'both' OR q.supported_modes = ?)";
+    params.push(mode);
+  }
   const [rows] = await pool.query(
-    `SELECT q.id, q.title_en, q.title_ar, q.cover_image_url, q.difficulty, q.category_id,
+    `SELECT q.id, q.title_en, q.title_ar, q.cover_image_url, q.difficulty, q.category_id, q.supported_modes,
             gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
             (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count
      FROM quizzes q
      LEFT JOIN game_categories gc ON gc.id = q.category_id
-     WHERE q.is_active = 1
-     ${req.query.category_id ? 'AND q.category_id = ?' : ''}
+     WHERE ${where}
      ORDER BY q.title_en ASC`,
-    req.query.category_id ? [req.query.category_id] : []
+    params
   );
   ok(res, rows.filter((r) => r.question_count > 0));
 });

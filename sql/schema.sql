@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
   description_ar      TEXT NULL,
   cover_image_url     VARCHAR(500) NULL,
   difficulty          ENUM('easy','medium','hard') NOT NULL DEFAULT 'easy',
+  supported_modes     ENUM('solo','team','both') NOT NULL DEFAULT 'both',
   created_by_admin_id BIGINT UNSIGNED NULL,
   is_active           TINYINT(1) NOT NULL DEFAULT 1,
   created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

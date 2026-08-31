@@ -12,6 +12,9 @@ function transformQuiz(body, { req, isUpdate } = {}) {
   mapBilingualField(body, data, 'description', 'description');
   if (body.coverImageUrl !== undefined) data.cover_image_url = body.coverImageUrl;
   if (body.difficulty !== undefined) data.difficulty = body.difficulty;
+  if (body.supportedModes !== undefined && ['solo', 'team', 'both'].includes(body.supportedModes)) {
+    data.supported_modes = body.supportedModes;
+  }
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
   if (req.admin) data.created_by_admin_id = data.created_by_admin_id || req.admin.id;
   requireBilingual(data, ['title'], isUpdate);

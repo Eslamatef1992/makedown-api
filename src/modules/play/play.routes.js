@@ -15,6 +15,10 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *       - in: query
  *         name: category_id
  *         schema: { type: integer }
+ *       - in: query
+ *         name: mode
+ *         schema: { type: string, enum: [solo, team] }
+ *         description: Only return quizzes the admin marked as supporting this mode (or 'both')
  *     responses: { 200: { description: List of quizzes } }
  * /play/sessions:
  *   post:
