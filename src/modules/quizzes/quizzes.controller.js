@@ -4,6 +4,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
 const { mapBilingualField, requireBilingual } = require('../../utils/bilingual');
+const { parseJsonColumn } = require('../../utils/jsonColumn');
 
 function transformQuiz(body, { req, isUpdate } = {}) {
   const data = {};
@@ -81,8 +82,8 @@ const updateQuestion = asyncHandler(async (req, res) => {
   if (b.questionType !== undefined && ['text', 'image', 'qr', 'audio'].includes(b.questionType)) data.question_type = b.questionType;
   if (b.mediaUrl !== undefined) data.media_url = b.mediaUrl;
   if (b.optionsEn !== undefined || b.optionsAr !== undefined) {
-    const optionsEn = b.optionsEn !== undefined ? b.optionsEn : JSON.parse(existing.options_json_en);
-    const optionsAr = b.optionsAr !== undefined ? b.optionsAr : JSON.parse(existing.options_json_ar || '[]');
+    const optionsEn = b.optionsEn !== undefined ? b.optionsEn : parseJsonColumn(existing.options_json_en, []);
+    const optionsAr = b.optionsAr !== undefined ? b.optionsAr : parseJsonColumn(existing.options_json_ar, []);
     requireParallelOptions(optionsEn, optionsAr);
     data.options_json_en = JSON.stringify(optionsEn);
     data.options_json_ar = JSON.stringify(optionsAr);

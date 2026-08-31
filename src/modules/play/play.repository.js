@@ -1,4 +1,5 @@
 const { pool } = require('../../config/db');
+const { parseJsonColumn } = require('../../utils/jsonColumn');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -205,7 +206,7 @@ async function findSessionDetail(sessionId) {
     getBoard(sessionId),
   ]);
 
-  const turnOrder = session.turn_order_json ? JSON.parse(session.turn_order_json) : [];
+  const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const currentTurnParticipantId = turnOrder[session.current_turn_index] || null;
 
   let currentQuestion = null;
@@ -328,7 +329,7 @@ async function leaveSession(sessionId, userId) {
 
   const session = await findSessionRaw(sessionId);
   if (session && session.status === 'active') {
-    const turnOrder = session.turn_order_json ? JSON.parse(session.turn_order_json) : [];
+    const turnOrder = parseJsonColumn(session.turn_order_json, []);
     if (turnOrder[session.current_turn_index] === participant.id) {
       await advanceTurn(sessionId);
     }
@@ -342,7 +343,7 @@ async function leaveSession(sessionId, userId) {
 
 async function advanceTurn(sessionId) {
   const session = await findSessionRaw(sessionId);
-  const turnOrder = session.turn_order_json ? JSON.parse(session.turn_order_json) : [];
+  const turnOrder = parseJsonColumn(session.turn_order_json, []);
   if (!turnOrder.length) return;
 
   const [activeRows] = await pool.query(
@@ -381,7 +382,7 @@ async function advanceTurn(sessionId) {
 }
 
 function requireTurn(session, participant) {
-  const turnOrder = session.turn_order_json ? JSON.parse(session.turn_order_json) : [];
+  const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const activeParticipantId = turnOrder[session.current_turn_index];
   if (!participant || activeParticipantId !== participant.id) throw new Error('NOT_YOUR_TURN');
 }
@@ -485,7 +486,7 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
 async function expireTurn(sessionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.status !== 'active' || !session.current_question_id) return null;
-  const turnOrder = session.turn_order_json ? JSON.parse(session.turn_order_json) : [];
+  const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const participantId = turnOrder[session.current_turn_index];
   if (!participantId) return null;
   return resolveTurn(sessionId, { participantId, selectedOptionIndex: null });
@@ -518,7 +519,7 @@ async function useFiftyFifty(sessionId, userId, questionId) {
   if (await hasUsedLifeline(sessionId, participant.id, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
 
   const question = await findQuestionRaw(questionId);
-  const options = JSON.parse(question.options_json_en);
+  const options = parseJsonColumn(question.options_json_en, []);
   const wrongIndices = options.map((_, i) => i).filter((i) => i !== question.correct_option_index);
   const hide = shuffle(wrongIndices).slice(0, Math.max(0, options.length - 2));
 
