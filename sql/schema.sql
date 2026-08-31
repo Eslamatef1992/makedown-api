@@ -312,6 +312,8 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   question_text_en     VARCHAR(500) NOT NULL,
   question_text_ar     VARCHAR(500) NOT NULL DEFAULT '',
   question_image_url   VARCHAR(500) NULL,
+  question_type        ENUM('text','image','qr','audio') NOT NULL DEFAULT 'text',
+  media_url             VARCHAR(500) NULL,
   options_json_en      JSON NOT NULL,
   options_json_ar      JSON NULL,
   correct_option_index TINYINT UNSIGNED NOT NULL,
@@ -322,20 +324,43 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS game_sessions (
-  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  quiz_id      BIGINT UNSIGNED NOT NULL,
-  host_user_id BIGINT UNSIGNED NULL,
-  school_id    INT UNSIGNED NULL,
-  mode         ENUM('solo','team','random') NOT NULL DEFAULT 'solo',
-  join_code    VARCHAR(12) NOT NULL UNIQUE,
-  qr_code_url  VARCHAR(500) NULL,
-  status       ENUM('waiting','active','finished','cancelled') NOT NULL DEFAULT 'waiting',
-  started_at   DATETIME NULL,
-  ended_at     DATETIME NULL,
-  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  quiz_id                 BIGINT UNSIGNED NULL,
+  title                   VARCHAR(150) NULL,
+  host_user_id            BIGINT UNSIGNED NULL,
+  school_id               INT UNSIGNED NULL,
+  mode                    ENUM('solo','team','random') NOT NULL DEFAULT 'solo',
+  is_public               TINYINT(1) NOT NULL DEFAULT 0,
+  max_players             TINYINT UNSIGNED NULL,
+  join_code               VARCHAR(12) NOT NULL UNIQUE,
+  qr_code_url             VARCHAR(500) NULL,
+  status                  ENUM('waiting','active','finished','cancelled') NOT NULL DEFAULT 'waiting',
+  turn_order_json         JSON NULL,
+  current_turn_index      INT UNSIGNED NOT NULL DEFAULT 0,
+  current_question_id     BIGINT UNSIGNED NULL,
+  turn_started_at         DATETIME NULL,
+  turn_ends_at            DATETIME NULL,
+  current_scan_token      VARCHAR(64) NULL,
+  current_scan_scanned_at DATETIME NULL,
+  started_at              DATETIME NULL,
+  ended_at                DATETIME NULL,
+  created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_gs_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
   CONSTRAINT fk_gs_host FOREIGN KEY (host_user_id) REFERENCES users(id) ON DELETE SET NULL,
-  CONSTRAINT fk_gs_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL
+  CONSTRAINT fk_gs_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL,
+  CONSTRAINT fk_gs_current_question FOREIGN KEY (current_question_id) REFERENCES quiz_questions(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Board columns: which quizzes (categories) a session's board is built from,
+-- i.e. the "specialize" step where a school/host picks categories.
+CREATE TABLE IF NOT EXISTS game_session_categories (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id BIGINT UNSIGNED NOT NULL,
+  quiz_id    BIGINT UNSIGNED NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_gsc_session_quiz (session_id, quiz_id),
+  CONSTRAINT fk_gsc_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gsc_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS game_teams (
@@ -355,6 +380,7 @@ CREATE TABLE IF NOT EXISTS game_participants (
   team_id    BIGINT UNSIGNED NULL,
   score      INT NOT NULL DEFAULT 0,
   joined_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  left_at    DATETIME NULL,
   CONSTRAINT fk_gp_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
   CONSTRAINT fk_gp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_gp_team FOREIGN KEY (team_id) REFERENCES game_teams(id) ON DELETE SET NULL
@@ -372,6 +398,66 @@ CREATE TABLE IF NOT EXISTS game_answers (
   CONSTRAINT fk_ga_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
   CONSTRAINT fk_ga_participant FOREIGN KEY (participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
   CONSTRAINT fk_ga_question FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One-time-per-game lifeline usage (50/50, skip, phone-a-friend).
+CREATE TABLE IF NOT EXISTS game_lifeline_usage (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id     BIGINT UNSIGNED NOT NULL,
+  participant_id BIGINT UNSIGNED NOT NULL,
+  lifeline_type  ENUM('fifty_fifty','skip','phone_a_friend') NOT NULL,
+  question_id    BIGINT UNSIGNED NOT NULL,
+  used_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_gl_once (session_id, participant_id, lifeline_type),
+  CONSTRAINT fk_gl_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gl_participant FOREIGN KEY (participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gl_question FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Phone-a-friend: a live in-session request/response between two
+-- participants (the "friend" sees the live question and suggests an answer).
+CREATE TABLE IF NOT EXISTS game_lifeline_requests (
+  id                       BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id               BIGINT UNSIGNED NOT NULL,
+  requester_participant_id BIGINT UNSIGNED NOT NULL,
+  target_participant_id    BIGINT UNSIGNED NOT NULL,
+  question_id              BIGINT UNSIGNED NOT NULL,
+  status                   ENUM('pending','answered','expired','cancelled') NOT NULL DEFAULT 'pending',
+  suggested_option_index   TINYINT UNSIGNED NULL,
+  created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  responded_at             DATETIME NULL,
+  CONSTRAINT fk_glr_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_glr_requester FOREIGN KEY (requester_participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_glr_target FOREIGN KEY (target_participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_glr_question FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Invites: username-search invite flow from the "Game Link" modal.
+CREATE TABLE IF NOT EXISTS game_invites (
+  id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id      BIGINT UNSIGNED NOT NULL,
+  inviter_user_id BIGINT UNSIGNED NOT NULL,
+  invitee_user_id BIGINT UNSIGNED NOT NULL,
+  status          ENUM('pending','accepted','declined','expired') NOT NULL DEFAULT 'pending',
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  responded_at    DATETIME NULL,
+  UNIQUE KEY uq_invite_once (session_id, invitee_user_id),
+  CONSTRAINT fk_ginv_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ginv_inviter FOREIGN KEY (inviter_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ginv_invitee FOREIGN KEY (invitee_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Manual host score adjustments (the +/- controls on the points board).
+CREATE TABLE IF NOT EXISTS game_score_adjustments (
+  id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id          BIGINT UNSIGNED NOT NULL,
+  participant_id      BIGINT UNSIGNED NOT NULL,
+  delta               INT NOT NULL,
+  adjusted_by_user_id BIGINT UNSIGNED NULL,
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_gsa_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gsa_participant FOREIGN KEY (participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gsa_admin FOREIGN KEY (adjusted_by_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------- Social / chat ----------

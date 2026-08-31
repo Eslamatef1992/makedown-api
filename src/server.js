@@ -30,7 +30,15 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Placeholder — live game namespaces/handlers land here (see docs/PROJECT_PLAN.md).
+  // Live game: clients join a room per game session so play.controller.js can
+  // broadcast board/turn/score updates to everyone watching that game.
+  socket.on('game:join', (sessionId) => {
+    if (sessionId) socket.join(`game:${sessionId}`);
+  });
+  socket.on('game:leave', (sessionId) => {
+    if (sessionId) socket.leave(`game:${sessionId}`);
+  });
+
   socket.on('disconnect', () => {});
 });
 

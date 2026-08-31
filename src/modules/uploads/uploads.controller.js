@@ -9,9 +9,9 @@ const { ok } = require('../../utils/apiResponse');
 const UPLOAD_DIR = path.join(__dirname, '../../../uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// Images only — covers everything the admin panel currently needs (product
-// thumbnails, quiz cover images, school logos, category icons) including
-// vector art via SVG.
+// Images (product thumbnails, quiz cover images, school logos, category
+// icons, question images) plus common audio formats (for "listening" quiz
+// question media).
 const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -22,6 +22,13 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/avif',
   'image/x-icon',
   'image/vnd.microsoft.icon',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/ogg',
+  'audio/webm',
+  'audio/mp4',
+  'audio/x-m4a',
 ]);
 
 const MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024; // 200MB — keep in sync with Nginx's client_max_body_size
@@ -55,7 +62,7 @@ function uploadImage(req, res, next) {
         return next(ApiError.badRequest(`File is too large. Max size is ${Math.floor(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB.`));
       }
       if (err.message === 'UNSUPPORTED_TYPE') {
-        return next(ApiError.badRequest('Unsupported file type. Allowed formats: PNG, JPG, GIF, WEBP, SVG, AVIF, ICO.'));
+        return next(ApiError.badRequest('Unsupported file type. Allowed formats: PNG, JPG, GIF, WEBP, SVG, AVIF, ICO, MP3, WAV, OGG, M4A.'));
       }
       return next(ApiError.badRequest('Upload failed'));
     }

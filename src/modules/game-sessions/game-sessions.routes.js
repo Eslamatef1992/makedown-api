@@ -20,6 +20,11 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *         name: status
  *         schema: { type: string, enum: [waiting, active, finished, cancelled] }
  *     responses: { 200: { description: Paginated list } }
+ *   post:
+ *     tags: [Games History]
+ *     summary: "Create Game — a school/staff picks solo or team mode, specializes categories, and gets a join code + QR"
+ *     security: [{ bearerAuth: [] }]
+ *     responses: { 201: { description: Created game session } }
  * /admin/game-sessions/{id}:
  *   get:
  *     tags: [Games History]
@@ -30,6 +35,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  */
 router.use(requireAdminAuth);
 router.get('/', controller.list);
+router.post('/', controller.create);
 router.get('/:id', controller.getOne);
 
 module.exports = router;

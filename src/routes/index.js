@@ -45,8 +45,6 @@ router.use('/payments', require('../modules/payments/payments.routes'));
 router.use('/me', require('../modules/me/me.routes'));
 router.use('/me/chat', require('../modules/chat/chat.customer.routes'));
 router.use('/users', require('../modules/follows/follows.routes'));
-
-// Still to come: payments gateway integration, live game session play (Socket.io),
-// social (follows) + real-time chat send. See docs/PROJECT_PLAN.md.
+router.use('/play', require('../modules/play/play.routes'));
 
 module.exports = router;
