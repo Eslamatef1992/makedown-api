@@ -1,8 +1,17 @@
 const repo = require('./orders.repository');
 const asyncHandler = require('../../utils/asyncHandler');
-const { ok } = require('../../utils/apiResponse');
+const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
 const productsRepo = require('../products/products.repository');
+const usersRepo = require('../users/users.repository');
+const couponsRepo = require('../coupons/coupons.repository');
+const { validateCoupon } = require('../coupons/coupons.service');
+const siteSettingsRepo = require('../site-settings/site-settings.repository');
+const { sendMail, orderConfirmationEmailTemplate } = require('../../config/mailer');
+const myfatoorah = require('../../services/myfatoorah.service');
+const env = require('../../config/env');
+
+const DELIVERY_FEE_KEY = 'order_delivery_fee'; // must match site-settings.controller.js
 
 const list = asyncHandler(async (req, res) => {
   const { page, pageSize, status, payment_status, guest } = req.query;
@@ -27,8 +36,40 @@ const updateStatus = asyncHandler(async (req, res) => {
   ok(res, order, 'Updated');
 });
 
+// Public — the order-confirmation page. See orders.repository.js#findByOrderNumber
+// for why the order number alone is an acceptable lookup key here.
+const trackByOrderNumber = asyncHandler(async (req, res) => {
+  const order = await repo.findByOrderNumber(req.params.orderNumber);
+  if (!order) throw ApiError.notFound('Order not found');
+  const items = await repo.listItems(order.id);
+  ok(res, { ...order, items });
+});
+
+async function sendConfirmationEmail(order) {
+  const to = order.user_email || order.guest_email;
+  if (!to) return;
+  try {
+    const items = await repo.listItems(order.id);
+    const address = order.shipping_address_json
+      ? typeof order.shipping_address_json === 'string'
+        ? JSON.parse(order.shipping_address_json)
+        : order.shipping_address_json
+      : null;
+    const { subject, text, html } = orderConfirmationEmailTemplate({ order, items, address });
+    await sendMail({ to, subject, text, html });
+  } catch {
+    // A failed email must never fail the order itself — it's already been
+    // placed/paid for by this point. Nothing left to roll back.
+  }
+}
+
 // Public — the website's checkout flow submits here. Always recomputes
-// prices from the database; never trusts a price the client sends.
+// prices from the database; never trusts a price the client sends. For
+// knet/credit_card this only creates the order — it isn't "placed" for
+// real until MyFatoorah confirms payment in payments.controller.js, same
+// honest split the packages purchase flow already uses. Cash orders are
+// placed immediately and confirmed by email right away, since there's no
+// gateway step to wait for.
 const checkout = asyncHandler(async (req, res) => {
   const { items, shippingAddress, paymentMethod, discountCode, guestName, guestEmail, guestPhone } = req.body;
 
@@ -65,11 +106,18 @@ const checkout = asyncHandler(async (req, res) => {
   }
   subtotal = Math.round(subtotal * 1000) / 1000;
 
-  // No discount-code catalogue or payment gateway is wired up yet — the
-  // order is recorded as placed and pending, ready for an admin (or a real
-  // gateway webhook, once one exists) to mark it paid.
-  const shippingTotal = 0;
-  const discountTotal = 0;
+  // Real coupon, looked up and re-validated server-side — never trusts a
+  // discount percentage the client computed itself.
+  let discountTotal = 0;
+  let coupon = null;
+  if (discountCode) {
+    const result = await validateCoupon(discountCode, subtotal);
+    coupon = result.coupon;
+    discountTotal = result.discountTotal;
+  }
+
+  const deliveryFeeSetting = await siteSettingsRepo.getValue(DELIVERY_FEE_KEY);
+  const shippingTotal = deliveryFeeSetting !== null ? Number(deliveryFeeSetting) : 0;
   const grandTotal = Math.round((subtotal - discountTotal + shippingTotal) * 1000) / 1000;
 
   const orderData = {
@@ -86,13 +134,46 @@ const checkout = asyncHandler(async (req, res) => {
     shipping_total: shippingTotal,
     grand_total: grandTotal,
     currency: 'KWD',
+    coupon_id: coupon ? coupon.id : null,
+    coupon_code: coupon ? coupon.code : null,
     shipping_address_json: JSON.stringify(shippingAddress),
-    notes: discountCode ? `Discount code entered: ${discountCode}` : null,
   };
 
   const order = await repo.create(orderData);
-  const createdItems = await repo.createItems(order.id, lineItems);
-  ok(res, { ...order, items: createdItems }, 'Order placed', 201);
+  await repo.createItems(order.id, lineItems);
+  if (coupon) await couponsRepo.incrementUsage(coupon.id);
+
+  if (paymentMethod === 'cash') {
+    const finalOrder = await repo.updateStatus(order.id, { status: 'processing' });
+    const finalItems = await repo.listItems(order.id);
+    await sendConfirmationEmail(finalOrder);
+    return created(res, { ...finalOrder, items: finalItems, redirectUrl: null }, 'Order placed');
+  }
+
+  // knet / credit_card — same MyFatoorah hosted-page flow packages.controller.js#purchase
+  // uses; the myFatoorahCallback confirms payment and sends the email once
+  // it's real.
+  const methods = await myfatoorah.initiatePayment(grandTotal, 'KWD');
+  const matcher = paymentMethod === 'knet' ? /knet/i : /visa|master|card/i;
+  const paymentMethodId = myfatoorah.findMethodId(methods, matcher);
+  if (!paymentMethodId) {
+    throw ApiError.badRequest(`${paymentMethod === 'knet' ? 'KNET' : 'Credit card'} payment is not available right now`);
+  }
+
+  const customer = req.user ? await usersRepo.findById(req.user.id) : null;
+  const callbackUrl = `${env.apiBaseUrl}/api/v1/payments/myfatoorah/callback?orderId=${order.id}`;
+  const { paymentUrl } = await myfatoorah.executePayment({
+    paymentMethodId,
+    invoiceValue: grandTotal,
+    customerName: customer?.full_name || guestName || 'Guest',
+    customerEmail: customer?.email || guestEmail,
+    customerMobile: customer?.phone || guestPhone || undefined,
+    callbackUrl,
+    errorUrl: callbackUrl,
+  });
+
+  const finalItems = await repo.listItems(order.id);
+  created(res, { ...order, items: finalItems, redirectUrl: paymentUrl }, 'Redirecting to payment');
 });
 
-module.exports = { list, getOne, updateStatus, checkout };
+module.exports = { list, getOne, updateStatus, checkout, trackByOrderNumber };

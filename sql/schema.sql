@@ -191,6 +191,20 @@ CREATE TABLE IF NOT EXISTS cart_items (
   CONSTRAINT fk_ci_var FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS coupons (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code           VARCHAR(50) NOT NULL UNIQUE,
+  type           ENUM('percentage','fixed') NOT NULL DEFAULT 'percentage',
+  value          DECIMAL(10,3) NOT NULL,
+  min_subtotal   DECIMAL(10,3) NULL,
+  max_uses       INT UNSIGNED NULL,
+  used_count     INT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at     DATETIME NULL,
+  is_active      TINYINT(1) NOT NULL DEFAULT 1,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS orders (
   id                    BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   order_number          VARCHAR(40) NOT NULL UNIQUE,
@@ -207,12 +221,15 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_total        DECIMAL(10,3) NOT NULL DEFAULT 0,
   grand_total           DECIMAL(10,3) NOT NULL DEFAULT 0,
   currency              CHAR(3) NOT NULL DEFAULT 'KWD',
+  coupon_id             BIGINT UNSIGNED NULL,
+  coupon_code           VARCHAR(50) NULL,
   shipping_address_json JSON NULL,
   billing_address_json  JSON NULL,
   notes                 VARCHAR(500) NULL,
   created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_order_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS order_items (

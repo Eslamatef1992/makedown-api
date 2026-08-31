@@ -34,8 +34,32 @@ async function findById(id) {
   return rows[0] || null;
 }
 
+// Order-confirmation-page-friendly lookup — order_number is unguessable
+// enough (timestamp + random suffix, see generateOrderNumber) to double as
+// a lightweight access token for the post-checkout/post-payment-redirect
+// confirmation page, without requiring the guest to be logged in.
+async function findByOrderNumber(orderNumber) {
+  const [rows] = await pool.query(
+    `SELECT o.*, u.full_name AS user_name, u.email AS user_email
+     FROM orders o LEFT JOIN users u ON u.id = o.user_id
+     WHERE o.order_number = ? LIMIT 1`,
+    [orderNumber]
+  );
+  return rows[0] || null;
+}
+
+// Joined to the product/variant so the order-confirmation UI can show the
+// same image + color/width/height the customer picked, not just the frozen
+// name/price snapshot.
 async function listItems(orderId) {
-  const [rows] = await pool.query('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+  const [rows] = await pool.query(
+    `SELECT oi.*, p.thumbnail_url, pv.attributes_json
+     FROM order_items oi
+     LEFT JOIN products p ON p.id = oi.product_id
+     LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+     WHERE oi.order_id = ?`,
+    [orderId]
+  );
   return rows;
 }
 
@@ -73,4 +97,4 @@ async function createItems(orderId, items) {
   return listItems(orderId);
 }
 
-module.exports = { list, findById, listItems, updateStatus, create, createItems, generateOrderNumber };
+module.exports = { list, findById, findByOrderNumber, listItems, updateStatus, create, createItems, generateOrderNumber };

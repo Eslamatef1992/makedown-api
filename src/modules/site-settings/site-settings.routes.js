@@ -22,6 +22,8 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
 router.use(requireAdminAuth);
 router.get('/home-video', controller.adminGetHomeVideo);
 router.put('/home-video', controller.adminSetHomeVideo);
+router.get('/delivery-fee', controller.adminGetDeliveryFee);
+router.put('/delivery-fee', controller.adminSetDeliveryFee);
 router.get('/contact-info', controller.adminGetContactInfo);
 router.put('/contact-info', controller.adminSetContactInfo);
 

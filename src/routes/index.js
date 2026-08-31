@@ -25,6 +25,7 @@ router.use('/admin/chat', require('../modules/chat/chat.routes'));
 router.use('/admin/product-categories', require('../modules/product-categories/product-categories.routes'));
 router.use('/admin/products', require('../modules/products/products.routes'));
 router.use('/admin/variant-types', require('../modules/variant-types/variant-types.routes'));
+router.use('/admin/coupons', require('../modules/coupons/coupons.routes'));
 router.use('/admin/packages', require('../modules/packages/packages.routes'));
 
 // ---- Admin panel: get in touch + CMS ----
@@ -36,6 +37,7 @@ router.use('/admin/site-settings', require('../modules/site-settings/site-settin
 router.use('/schools', require('../modules/schools/schools.public.routes'));
 router.use('/game-categories', require('../modules/game-categories/game-categories.public.routes'));
 router.use('/products', require('../modules/products/products.public.routes'));
+router.use('/coupons', require('../modules/coupons/coupons.public.routes'));
 router.use('/packages', require('../modules/packages/packages.public.routes'));
 router.use('/contact-us', require('../modules/contact/contact.public.routes'));
 router.use('/', require('../modules/cms/cms.public.routes'));

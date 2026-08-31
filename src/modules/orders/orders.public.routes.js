@@ -41,4 +41,17 @@ const { checkout } = require('../../validators/checkout.validator');
  */
 router.post('/', optionalAuth, validate(checkout), controller.checkout);
 
+/**
+ * @swagger
+ * /orders/track/{orderNumber}:
+ *   get:
+ *     tags: [Orders]
+ *     summary: Look up an order by its order number (public — the order-confirmation page, including after a MyFatoorah redirect)
+ *     parameters: [{ in: path, name: orderNumber, required: true, schema: { type: string } }]
+ *     responses:
+ *       200: { description: Order with items }
+ *       404: { description: Not found }
+ */
+router.get('/track/:orderNumber', controller.trackByOrderNumber);
+
 module.exports = router;

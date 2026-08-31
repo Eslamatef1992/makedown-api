@@ -10,6 +10,7 @@ const controller = require('./site-settings.controller');
  *     responses: { 200: { description: Current URL } }
  */
 router.get('/home-video', controller.publicGetHomeVideo);
+router.get('/delivery-fee', controller.publicGetDeliveryFee);
 router.get('/contact-info', controller.publicGetContactInfo);
 
 module.exports = router;

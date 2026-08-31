@@ -3,6 +3,7 @@ const { ok } = require('../../utils/apiResponse');
 const repo = require('./site-settings.repository');
 
 const HOME_VIDEO_KEY = 'home_video_url';
+const DELIVERY_FEE_KEY = 'order_delivery_fee';
 const CONTACT_INFO_KEYS = {
   companyEmail: 'contact_company_email',
   supportEmail: 'contact_support_email',
@@ -22,6 +23,24 @@ const adminSetHomeVideo = asyncHandler(async (req, res) => {
 const publicGetHomeVideo = asyncHandler(async (req, res) => {
   const url = await repo.getValue(HOME_VIDEO_KEY);
   ok(res, { url });
+});
+
+// Flat delivery fee shown (and actually charged) on the cart/checkout order
+// summary — a real, admin-set amount, not the hardcoded 0.00 it used to be.
+const adminGetDeliveryFee = asyncHandler(async (req, res) => {
+  const fee = await repo.getValue(DELIVERY_FEE_KEY);
+  ok(res, { fee: fee !== null ? Number(fee) : 0 });
+});
+
+const adminSetDeliveryFee = asyncHandler(async (req, res) => {
+  const fee = Number(req.body.fee) || 0;
+  await repo.setValue(DELIVERY_FEE_KEY, String(fee));
+  ok(res, { fee }, 'Saved');
+});
+
+const publicGetDeliveryFee = asyncHandler(async (req, res) => {
+  const fee = await repo.getValue(DELIVERY_FEE_KEY);
+  ok(res, { fee: fee !== null ? Number(fee) : 0 });
 });
 
 async function readContactInfo() {
@@ -53,6 +72,9 @@ module.exports = {
   adminGetHomeVideo,
   adminSetHomeVideo,
   publicGetHomeVideo,
+  adminGetDeliveryFee,
+  adminSetDeliveryFee,
+  publicGetDeliveryFee,
   adminGetContactInfo,
   adminSetContactInfo,
   publicGetContactInfo,
