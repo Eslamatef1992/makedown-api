@@ -56,12 +56,18 @@ const getOneWithQuestions = asyncHandler(async (req, res) => {
   ok(res, { ...quiz, questions });
 });
 
+// Answer options are optional in the sense that an admin only has to fill
+// in as many as the question needs (1 is enough for e.g. a fill-in-style
+// prompt) — but whichever ones ARE provided must be non-empty and present
+// in both languages, since the game engine renders whatever array length
+// it's given (see website LiveGamePage.jsx, which maps over options.length
+// rather than assuming 4).
 function requireParallelOptions(optionsEn, optionsAr) {
   if (!Array.isArray(optionsEn) || !Array.isArray(optionsAr)) {
     throw ApiError.badRequest('Both English and Arabic options are required');
   }
-  if (optionsEn.length < 2 || optionsAr.length < 2) {
-    throw ApiError.badRequest('At least two options are required in both languages');
+  if (optionsEn.length < 1 || optionsAr.length < 1) {
+    throw ApiError.badRequest('At least one option is required in both languages');
   }
   if (optionsEn.length !== optionsAr.length) {
     throw ApiError.badRequest('English and Arabic options must have the same number of entries');
@@ -69,6 +75,18 @@ function requireParallelOptions(optionsEn, optionsAr) {
   if (optionsEn.some((o) => !String(o || '').trim()) || optionsAr.some((o) => !String(o || '').trim())) {
     throw ApiError.badRequest('Options cannot be empty in either language');
   }
+}
+
+// correct_option_index is a NOT NULL column with no default — an
+// undefined/out-of-range value must never reach the INSERT/UPDATE (that
+// previously surfaced to the admin as a raw "Internal server error" from
+// MySQL's ER_BAD_NULL_ERROR instead of a clear validation message).
+function requireValidCorrectIndex(index, optionsLength) {
+  const n = Number(index);
+  if (index === undefined || index === null || !Number.isInteger(n) || n < 0 || n >= optionsLength) {
+    throw ApiError.badRequest('correctOptionIndex must point to one of the provided options');
+  }
+  return n;
 }
 
 const addQuestion = asyncHandler(async (req, res) => {
@@ -79,6 +97,7 @@ const addQuestion = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Both English and Arabic question text are required');
   }
   requireParallelOptions(b.optionsEn, b.optionsAr);
+  const correctOptionIndex = requireValidCorrectIndex(b.correctOptionIndex, b.optionsEn.length);
   const questionType = ['text', 'image', 'qr', 'audio'].includes(b.questionType) ? b.questionType : 'text';
   const mode = QUESTION_MODES.includes(b.mode) ? b.mode : 'both';
   const points = QUESTION_POINT_VALUES.includes(Number(b.points)) ? Number(b.points) : 200;
@@ -91,7 +110,7 @@ const addQuestion = asyncHandler(async (req, res) => {
     media_url: b.mediaUrl || null,
     options_json_en: JSON.stringify(b.optionsEn),
     options_json_ar: JSON.stringify(b.optionsAr),
-    correct_option_index: b.correctOptionIndex,
+    correct_option_index: correctOptionIndex,
     points,
     time_limit_seconds: b.timeLimitSeconds ?? 20,
     sort_order: b.sortOrder ?? 0,
@@ -110,14 +129,18 @@ const updateQuestion = asyncHandler(async (req, res) => {
   if (b.questionType !== undefined && ['text', 'image', 'qr', 'audio'].includes(b.questionType)) data.question_type = b.questionType;
   if (b.mode !== undefined && QUESTION_MODES.includes(b.mode)) data.mode = b.mode;
   if (b.mediaUrl !== undefined) data.media_url = b.mediaUrl;
+  let effectiveOptionsLength = parseJsonColumn(existing.options_json_en, []).length;
   if (b.optionsEn !== undefined || b.optionsAr !== undefined) {
     const optionsEn = b.optionsEn !== undefined ? b.optionsEn : parseJsonColumn(existing.options_json_en, []);
     const optionsAr = b.optionsAr !== undefined ? b.optionsAr : parseJsonColumn(existing.options_json_ar, []);
     requireParallelOptions(optionsEn, optionsAr);
     data.options_json_en = JSON.stringify(optionsEn);
     data.options_json_ar = JSON.stringify(optionsAr);
+    effectiveOptionsLength = optionsEn.length;
   }
-  if (b.correctOptionIndex !== undefined) data.correct_option_index = b.correctOptionIndex;
+  if (b.correctOptionIndex !== undefined) {
+    data.correct_option_index = requireValidCorrectIndex(b.correctOptionIndex, effectiveOptionsLength);
+  }
   if (b.points !== undefined && QUESTION_POINT_VALUES.includes(Number(b.points))) data.points = Number(b.points);
   if (b.timeLimitSeconds !== undefined) data.time_limit_seconds = b.timeLimitSeconds;
   if (b.sortOrder !== undefined) data.sort_order = b.sortOrder;
