@@ -23,12 +23,20 @@ async function uniqueJoinCode() {
 // there is no admin "participant" row since admins aren't website users;
 // students join the resulting session from the website Play flow with their
 // own accounts, same as any player-created game.
-async function createSchoolGame({ mode, quizIds = [], title, schoolId, maxPlayers, isPublic = false }) {
+async function createSchoolGame({
+  mode, quizIds = [], title, schoolId, maxPlayers, isPublic = false,
+  audience, scheduledDate, scheduledTime,
+  team1Name, team1Capacity, team2Name, team2Capacity,
+}) {
   const joinCode = await uniqueJoinCode();
   const [result] = await pool.query(
-    `INSERT INTO game_sessions (quiz_id, title, host_user_id, school_id, mode, is_public, max_players, join_code, status)
-     VALUES (NULL, ?, NULL, ?, ?, ?, ?, ?, 'waiting')`,
-    [title || null, schoolId || null, mode, isPublic ? 1 : 0, maxPlayers || null, joinCode]
+    `INSERT INTO game_sessions
+       (quiz_id, title, host_user_id, school_id, mode, audience, is_public, max_players, scheduled_date, scheduled_time, join_code, status)
+     VALUES (NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
+    [
+      title || null, schoolId || null, mode, audience || null, isPublic ? 1 : 0, maxPlayers || null,
+      scheduledDate || null, scheduledTime || null, joinCode,
+    ]
   );
   const sessionId = result.insertId;
 
@@ -38,12 +46,50 @@ async function createSchoolGame({ mode, quizIds = [], title, schoolId, maxPlayer
   }
 
   if (mode === 'team') {
-    await pool.query('INSERT INTO game_teams (session_id, name) VALUES (?, ?), (?, ?)', [
-      sessionId, 'Team A', sessionId, 'Team B',
+    await pool.query('INSERT INTO game_teams (session_id, name, capacity) VALUES (?, ?, ?), (?, ?, ?)', [
+      sessionId, team1Name || 'Team A', team1Capacity || null,
+      sessionId, team2Name || 'Team B', team2Capacity || null,
     ]);
   }
 
   return findById(sessionId);
+}
+
+// Public — the website's "<School> Games" page. No join code in the
+// payload on purpose (see schools.controller.js#publicGames).
+async function listPublicForSchool(schoolId) {
+  const [rows] = await pool.query(
+    `SELECT id, title, mode, audience, status, scheduled_date, scheduled_time
+     FROM game_sessions
+     WHERE school_id = ? AND status IN ('waiting', 'active')
+     ORDER BY scheduled_date ASC, scheduled_time ASC, created_at DESC`,
+    [schoolId]
+  );
+  if (!rows.length) return [];
+
+  const ids = rows.map((r) => r.id);
+  const [teamRows] = await pool.query(
+    'SELECT session_id, name, capacity FROM game_teams WHERE session_id IN (?) ORDER BY id ASC',
+    [ids]
+  );
+  const [catRows] = await pool.query(
+    `SELECT gsc.session_id, q.title_en, q.title_ar
+     FROM game_session_categories gsc JOIN quizzes q ON q.id = gsc.quiz_id
+     WHERE gsc.session_id IN (?) ORDER BY gsc.sort_order ASC`,
+    [ids]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    mode: r.mode,
+    audience: r.audience,
+    status: r.status,
+    scheduledDate: r.scheduled_date,
+    scheduledTime: r.scheduled_time,
+    teams: teamRows.filter((t) => t.session_id === r.id).map((t) => ({ name: t.name, capacity: t.capacity })),
+    categories: catRows.filter((c) => c.session_id === r.id).map((c) => ({ titleEn: c.title_en, titleAr: c.title_ar })),
+  }));
 }
 
 
@@ -97,4 +143,4 @@ async function listParticipants(sessionId) {
   return rows;
 }
 
-module.exports = { list, findById, listParticipants, createSchoolGame, getBoard: playRepo.getBoard };
+module.exports = { list, findById, listParticipants, createSchoolGame, listPublicForSchool, getBoard: playRepo.getBoard };

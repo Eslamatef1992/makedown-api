@@ -266,6 +266,7 @@ CREATE TABLE IF NOT EXISTS schools (
   name_en       VARCHAR(200) NOT NULL,
   name_ar       VARCHAR(200) NOT NULL DEFAULT '',
   code          VARCHAR(30) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NULL,
   logo_url      VARCHAR(500) NULL,
   address       VARCHAR(255) NULL,
   contact_email VARCHAR(190) NULL,
@@ -330,8 +331,11 @@ CREATE TABLE IF NOT EXISTS game_sessions (
   host_user_id            BIGINT UNSIGNED NULL,
   school_id               INT UNSIGNED NULL,
   mode                    ENUM('solo','team','random') NOT NULL DEFAULT 'solo',
+  audience                ENUM('girls','boys','mixed') NULL,
   is_public               TINYINT(1) NOT NULL DEFAULT 0,
   max_players             TINYINT UNSIGNED NULL,
+  scheduled_date          DATE NULL,
+  scheduled_time          TIME NULL,
   join_code               VARCHAR(12) NOT NULL UNIQUE,
   qr_code_url             VARCHAR(500) NULL,
   status                  ENUM('waiting','active','finished','cancelled') NOT NULL DEFAULT 'waiting',
@@ -368,6 +372,7 @@ CREATE TABLE IF NOT EXISTS game_teams (
   session_id BIGINT UNSIGNED NOT NULL,
   name       VARCHAR(80) NOT NULL,
   color      VARCHAR(20) NULL,
+  capacity   SMALLINT UNSIGNED NULL,
   score      INT NOT NULL DEFAULT 0,
   CONSTRAINT fk_gt_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

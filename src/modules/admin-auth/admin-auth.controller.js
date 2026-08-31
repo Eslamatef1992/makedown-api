@@ -8,8 +8,12 @@ const login = asyncHandler(async (req, res) => {
 });
 
 const me = asyncHandler(async (req, res) => {
-  const result = await service.me(req.admin.id);
-  ok(res, result);
+  if (req.school) {
+    const school = await service.meSchool(req.school.id);
+    return ok(res, { role: 'school', school });
+  }
+  const admin = await service.me(req.admin.id);
+  ok(res, { role: 'admin', admin });
 });
 
 module.exports = { login, me };

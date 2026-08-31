@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const controller = require('./game-sessions.controller');
-const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
+const requireAdminOrSchoolAuth = require('../../middlewares/adminOrSchoolAuth.middleware');
 
 /**
  * @swagger
@@ -33,7 +33,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     responses: { 200: { description: Session detail } }
  */
-router.use(requireAdminAuth);
+router.use(requireAdminOrSchoolAuth);
 router.get('/', controller.list);
 router.post('/', controller.create);
 router.get('/:id', controller.getOne);

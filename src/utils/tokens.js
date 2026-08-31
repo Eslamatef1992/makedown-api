@@ -53,3 +53,18 @@ function verifyAdminAccessToken(token) {
 
 module.exports.signAdminAccessToken = signAdminAccessToken;
 module.exports.verifyAdminAccessToken = verifyAdminAccessToken;
+
+// Schools authenticate through the same admin login screen (see
+// admin-auth.service.js) but get a distinctly-typed token so a school can
+// never be mistaken for (or escalate into) an admin account. Same secret as
+// the admin token is fine — verifyAdminAccessToken is just jwt.verify(),
+// and every route checks payload.type before trusting it.
+function signSchoolAccessToken(school) {
+  return jwt.sign(
+    { sub: school.id, code: school.code, type: 'school_access' },
+    env.jwt.adminSecret,
+    { expiresIn: env.jwt.adminExpiresIn }
+  );
+}
+
+module.exports.signSchoolAccessToken = signSchoolAccessToken;

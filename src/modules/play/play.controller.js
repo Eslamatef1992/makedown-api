@@ -150,6 +150,27 @@ const joinByCode = asyncHandler(async (req, res) => {
   const session = await repo.findSessionByJoinCode(code);
   if (!session) throw ApiError.notFound('No game found with that code');
 
+  // Scheduled (school/education) games open 10 minutes before their start
+  // time, matching the note shown on the website's school games page.
+  if (session.scheduled_date && session.scheduled_time) {
+    try {
+      const datePart = session.scheduled_date instanceof Date
+        ? session.scheduled_date.toISOString().slice(0, 10)
+        : String(session.scheduled_date).slice(0, 10);
+      const timePart = String(session.scheduled_time).slice(0, 8);
+      const scheduledAt = new Date(`${datePart}T${timePart}`);
+      if (!Number.isNaN(scheduledAt.getTime())) {
+        const opensAt = new Date(scheduledAt.getTime() - 10 * 60 * 1000);
+        if (Date.now() < opensAt.getTime()) {
+          throw ApiError.badRequest(`This game opens 10 minutes before its start time (${timePart.slice(0, 5)}).`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      // Don't let a scheduling-format hiccup block an otherwise valid join.
+    }
+  }
+
   try {
     await repo.joinSession(session.id, req.user.id);
   } catch (err) {

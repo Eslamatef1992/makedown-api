@@ -2,11 +2,12 @@ const router = require('express').Router();
 const Joi = require('joi');
 
 const controller = require('./admin-auth.controller');
-const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
+const requireAdminOrSchoolAuth = require('../../middlewares/adminOrSchoolAuth.middleware');
 const validate = require('../../middlewares/validate.middleware');
 
 const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
+  // An admin's email, or a school's login code — see admin-auth.service.js.
+  identifier: Joi.string().required(),
   password: Joi.string().required(),
 });
 
@@ -27,7 +28,7 @@ const loginSchema = Joi.object({
  *             type: object
  *             required: [email, password]
  *             properties:
- *               email: { type: string, format: email }
+ *               identifier: { type: string, description: "Admin email, or a school's login code" }
  *               password: { type: string, format: password }
  *     responses:
  *       200: { description: Authenticated admin session }
@@ -45,6 +46,6 @@ router.post('/login', validate(loginSchema), controller.login);
  *     responses:
  *       200: { description: Admin profile }
  */
-router.get('/me', requireAdminAuth, controller.me);
+router.get('/me', requireAdminOrSchoolAuth, controller.me);
 
 module.exports = router;
