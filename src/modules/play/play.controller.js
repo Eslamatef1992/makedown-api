@@ -1,4 +1,5 @@
 const repo = require('./play.repository');
+const packagesRepo = require('../packages/packages.repository');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
@@ -87,6 +88,19 @@ function mapError(err) {
   throw err;
 }
 
+// Every user gets exactly one free game; after that, starting or joining a
+// game requires an active package with credits left.
+async function requireGameCredit(userId) {
+  try {
+    await packagesRepo.consumeGameCredit(userId);
+  } catch (err) {
+    if (err.message === 'NO_GAME_CREDITS') {
+      throw new ApiError(402, "You've used your free game. Subscribe to a package to keep playing.");
+    }
+    throw err;
+  }
+}
+
 async function requireParticipant(sessionId, userId) {
   const participant = await repo.findParticipant(sessionId, userId);
   if (!participant) throw ApiError.forbidden('You are not part of this game');
@@ -132,6 +146,8 @@ const createSession = asyncHandler(async (req, res) => {
   const { mode, quizIds, title, isPublic, maxPlayers, schoolId } = req.body;
   if (!['solo', 'team', 'random'].includes(mode)) throw ApiError.badRequest('mode must be solo, team, or random');
   if (!Array.isArray(quizIds) || !quizIds.length) throw ApiError.badRequest('Select at least one category');
+
+  await requireGameCredit(req.user.id);
 
   const session = await repo.createSession({
     hostUserId: req.user.id,
@@ -182,6 +198,11 @@ const joinByCode = asyncHandler(async (req, res) => {
       // Don't let a scheduling-format hiccup block an otherwise valid join.
     }
   }
+
+  // Rejoining a game you're already part of (reconnect, double-tap) must
+  // never spend a second free game or credit — only a genuinely new join does.
+  const alreadyIn = await repo.findParticipant(session.id, req.user.id);
+  if (!alreadyIn) await requireGameCredit(req.user.id);
 
   try {
     await repo.joinSession(session.id, req.user.id);
