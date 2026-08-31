@@ -217,6 +217,7 @@ async function findSessionDetail(sessionId) {
   return {
     ...session,
     turn_order_json: undefined,
+    current_scan_token: undefined, // never leak the QR scan secret through session state
     turnOrder,
     currentTurnParticipantId,
     currentQuestion,
