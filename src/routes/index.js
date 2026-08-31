@@ -47,5 +47,6 @@ router.use('/me', require('../modules/me/me.routes'));
 router.use('/me/chat', require('../modules/chat/chat.customer.routes'));
 router.use('/users', require('../modules/follows/follows.routes'));
 router.use('/play', require('../modules/play/play.routes'));
+router.use('/currency', require('../modules/currency/currency.routes'));
 
 module.exports = router;
