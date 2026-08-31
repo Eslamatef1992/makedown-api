@@ -29,7 +29,7 @@ async function createUserPackage({ userId, packageId, orderId, credits, validity
 
 async function findUserPackageById(id) {
   const [rows] = await pool.query(
-    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits
+    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits
      FROM user_packages up JOIN packages p ON p.id = up.package_id
      WHERE up.id = ? LIMIT 1`,
     [id]
@@ -46,7 +46,7 @@ async function findUserPackageByOrderId(orderId) {
 // full purchase history — used by the My Profile page.
 async function listUserPackages(userId) {
   const [rows] = await pool.query(
-    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits
+    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits
      FROM user_packages up JOIN packages p ON p.id = up.package_id
      WHERE up.user_id = ?
      ORDER BY up.purchased_at DESC`,

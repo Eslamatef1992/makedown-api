@@ -16,6 +16,7 @@ function transformInput(body, { isUpdate } = {}) {
   if (body.price !== undefined) data.price = body.price;
   if (body.currency !== undefined) data.currency = body.currency;
   if (body.credits !== undefined) data.credits = body.credits;
+  if (body.freeCredits !== undefined) data.free_credits = body.freeCredits;
   if (body.validityDays !== undefined) data.validity_days = body.validityDays;
   if (body.sortOrder !== undefined) data.sort_order = body.sortOrder;
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
@@ -73,7 +74,7 @@ const purchase = asyncHandler(async (req, res) => {
       userId: req.user.id,
       packageId: pkg.id,
       orderId: order.id,
-      credits: pkg.credits,
+      credits: Number(pkg.credits || 0) + Number(pkg.free_credits || 0),
       validityDays: pkg.validity_days,
     });
     return created(res, { order, userPackage, redirectUrl: null }, 'Package order placed — pay in cash to confirm');
