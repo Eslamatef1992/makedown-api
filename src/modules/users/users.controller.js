@@ -11,9 +11,13 @@ function serialize(user) {
   return rest;
 }
 
-// Admin can toggle status flags and edit a special user's basic profile
-// fields here — password/email stay out of this endpoint on purpose.
-function transformInput(body) {
+// Admin can toggle status flags, edit a user's basic profile fields, and set
+// followers/following here. Email is intentionally never editable through
+// this endpoint (it's the login identity). A password IS supported — but
+// only as a one-way "set a new password" action: we hash whatever the admin
+// typed and never read/return the hash, so admins still can't see or
+// recover a user's actual password, only overwrite it.
+async function transformInput(body) {
   const data = {};
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
   if (body.isSpecial !== undefined) data.is_special = body.isSpecial ? 1 : 0;
@@ -25,6 +29,7 @@ function transformInput(body) {
   if (body.phone !== undefined) data.phone = body.phone || null;
   if (body.followersCount !== undefined) data.followers_count = Number(body.followersCount) || 0;
   if (body.followingCount !== undefined) data.following_count = Number(body.followingCount) || 0;
+  if (body.password) data.password_hash = await bcrypt.hash(body.password, 10);
   return data;
 }
 
