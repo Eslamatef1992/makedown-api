@@ -34,6 +34,7 @@ const addValue = asyncHandler(async (req, res) => {
     value_en: b.valueEn,
     value_ar: b.valueAr,
     sort_order: b.sortOrder ?? 0,
+    hex_color: b.hexColor || null,
   });
   created(res, value);
 });
@@ -46,6 +47,7 @@ const updateValue = asyncHandler(async (req, res) => {
   if (b.valueEn !== undefined) data.value_en = b.valueEn;
   if (b.valueAr !== undefined) data.value_ar = b.valueAr;
   if (b.sortOrder !== undefined) data.sort_order = b.sortOrder;
+  if (b.hexColor !== undefined) data.hex_color = b.hexColor || null;
   const value = await repo.updateValue(req.params.valueId, data);
   ok(res, value, 'Updated');
 });

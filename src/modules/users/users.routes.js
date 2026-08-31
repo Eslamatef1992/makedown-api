@@ -38,9 +38,28 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *         application/json:
  *           schema: { type: object, properties: { isActive: { type: boolean }, isSpecial: { type: boolean } } }
  *     responses: { 200: { description: Updated } }
+ *   post:
+ *     tags: [Users]
+ *     summary: Create a special user (logs in to the website like any user)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName, lastName, email, password]
+ *             properties:
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               email: { type: string }
+ *               password: { type: string }
+ *               followersCount: { type: integer }
+ *               followingCount: { type: integer }
+ *     responses: { 201: { description: Created } }
  */
 router.use(requireAdminAuth);
 router.get('/', controller.list);
+router.post('/', controller.createOne);
 router.get('/:id', controller.getOne);
 router.patch('/:id', controller.updateOne);
 

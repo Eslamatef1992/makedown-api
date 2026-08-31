@@ -97,6 +97,31 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *       - { in: path, name: id, required: true, schema: { type: integer } }
  *       - { in: path, name: variantId, required: true, schema: { type: integer } }
  *     responses: { 200: { description: Deleted } }
+ * /admin/products/{id}/images:
+ *   post:
+ *     tags: [Products]
+ *     summary: Add a gallery image to a product
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [imageUrl]
+ *             properties:
+ *               imageUrl: { type: string }
+ *               sortOrder: { type: integer }
+ *     responses: { 201: { description: Created } }
+ * /admin/products/{id}/images/{imageId}:
+ *   delete:
+ *     tags: [Products]
+ *     summary: Remove a gallery image from a product
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *       - { in: path, name: imageId, required: true, schema: { type: integer } }
+ *     responses: { 200: { description: Deleted } }
  */
 router.use(requireAdminAuth);
 router.get('/', controller.list);
@@ -108,5 +133,7 @@ router.post('/:id/variants', controller.addVariant);
 router.post('/:id/variants/generate', controller.generateVariants);
 router.patch('/:id/variants/:variantId', controller.updateVariant);
 router.delete('/:id/variants/:variantId', controller.deleteVariant);
+router.post('/:id/images', controller.addImage);
+router.delete('/:id/images/:imageId', controller.deleteImage);
 
 module.exports = router;

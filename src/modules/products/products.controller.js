@@ -132,7 +132,10 @@ const generateVariants = asyncHandler(async (req, res) => {
     const attributes = {};
     const skuParts = [product.slug];
     combo.forEach((v) => {
-      attributes[v.typeSlug] = v.value_en;
+      // A color-type value with a picked hex swatch stores the hex as the
+      // attribute so the website's `style={{ backgroundColor: ... }}`
+      // swatches render the real picked color instead of the text label.
+      attributes[v.typeSlug] = v.hex_color || v.value_en;
       skuParts.push(slugifyValue(v.value_en));
     });
     const signature = JSON.stringify(Object.entries(attributes).sort());
@@ -184,4 +187,35 @@ const publicGetBySlug = asyncHandler(async (req, res) => {
   ok(res, { ...product, variants: variants.filter((v) => v.is_active), images });
 });
 
-module.exports = { ...crud, getOneWithVariants, addVariant, updateVariant, deleteVariant, generateVariants, publicList, publicGetBySlug };
+// ---- images (product gallery) ----
+
+const addImage = asyncHandler(async (req, res) => {
+  const product = await repo.findById(req.params.id);
+  if (!product) throw ApiError.notFound('Product not found');
+  const b = req.body;
+  if (!b.imageUrl) throw ApiError.badRequest('imageUrl is required');
+  const image = await repo.createImage(req.params.id, { imageUrl: b.imageUrl, sortOrder: b.sortOrder });
+  created(res, image);
+});
+
+const deleteImage = asyncHandler(async (req, res) => {
+  const existing = await repo.findImageById(req.params.imageId);
+  if (!existing || String(existing.product_id) !== String(req.params.id)) {
+    throw ApiError.notFound('Image not found');
+  }
+  await repo.deleteImage(req.params.imageId);
+  ok(res, null, 'Deleted');
+});
+
+module.exports = {
+  ...crud,
+  getOneWithVariants,
+  addVariant,
+  updateVariant,
+  deleteVariant,
+  generateVariants,
+  publicList,
+  publicGetBySlug,
+  addImage,
+  deleteImage,
+};

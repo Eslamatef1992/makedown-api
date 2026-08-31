@@ -32,6 +32,25 @@ async function listImages(productId) {
   return rows;
 }
 
+async function findImageById(id) {
+  const [rows] = await pool.query('SELECT * FROM product_images WHERE id = ? LIMIT 1', [id]);
+  return rows[0] || null;
+}
+
+async function createImage(productId, { imageUrl, sortOrder }) {
+  const [countRows] = await pool.query('SELECT COUNT(*) as total FROM product_images WHERE product_id = ?', [productId]);
+  const nextSort = sortOrder ?? countRows[0].total;
+  const [result] = await pool.query(
+    'INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)',
+    [productId, imageUrl, nextSort]
+  );
+  return findImageById(result.insertId);
+}
+
+async function deleteImage(id) {
+  await pool.query('DELETE FROM product_images WHERE id = ?', [id]);
+}
+
 async function findVariantById(id) {
   const [rows] = await pool.query('SELECT * FROM product_variants WHERE id = ? LIMIT 1', [id]);
   return rows[0] || null;
@@ -62,6 +81,9 @@ module.exports = {
   listActive,
   listVariants,
   listImages,
+  findImageById,
+  createImage,
+  deleteImage,
   findVariantById,
   findVariantBySku,
   createVariant,
