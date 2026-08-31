@@ -22,7 +22,6 @@ router.use('/admin/orders', require('../modules/orders/orders.routes'));
 router.use('/admin/chat', require('../modules/chat/chat.routes'));
 
 // ---- Admin panel: ecommerce ----
-router.use('/admin/product-categories', require('../modules/product-categories/product-categories.routes'));
 router.use('/admin/products', require('../modules/products/products.routes'));
 router.use('/admin/variant-types', require('../modules/variant-types/variant-types.routes'));
 router.use('/admin/coupons', require('../modules/coupons/coupons.routes'));

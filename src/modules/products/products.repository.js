@@ -8,10 +8,9 @@ async function findBySlug(slug) {
   return rows[0] || null;
 }
 
-async function listActive({ page = 1, pageSize = 20, categoryId } = {}) {
+async function listActive({ page = 1, pageSize = 20 } = {}) {
   const where = ['is_active = 1'];
   const params = [];
-  if (categoryId) { where.push('category_id = ?'); params.push(categoryId); }
   const limit = Math.min(Number(pageSize) || 20, 100);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
   const [rows] = await pool.query(

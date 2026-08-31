@@ -18,7 +18,6 @@ const stats = asyncHandler(async (req, res) => {
     totalPackagesSold: 'SELECT COUNT(*) AS n FROM user_packages',
     totalGameCategories: 'SELECT COUNT(*) AS n FROM game_categories WHERE is_active = 1',
     totalPackages: 'SELECT COUNT(*) AS n FROM packages WHERE is_active = 1',
-    totalProductCategories: 'SELECT COUNT(*) AS n FROM product_categories WHERE is_active = 1',
     totalAdmins: 'SELECT COUNT(*) AS n FROM admins WHERE is_active = 1',
     totalFaqs: 'SELECT COUNT(*) AS n FROM faqs WHERE is_active = 1',
   };

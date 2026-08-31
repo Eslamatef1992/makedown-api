@@ -9,7 +9,6 @@ const variantTypesRepo = require('../variant-types/variant-types.repository');
 
 async function transformInput(body, { isUpdate } = {}) {
   const data = {};
-  if (body.categoryId !== undefined) data.category_id = body.categoryId || null;
   mapBilingualField(body, data, 'name', 'name');
   if (body.slug !== undefined) data.slug = body.slug;
   mapBilingualField(body, data, 'description', 'description');
@@ -201,8 +200,8 @@ const generateVariants = asyncHandler(async (req, res) => {
 // ---- public ----
 
 const publicList = asyncHandler(async (req, res) => {
-  const { page, pageSize, categoryId } = req.query;
-  const result = await repo.listActive({ page, pageSize, categoryId });
+  const { page, pageSize } = req.query;
+  const result = await repo.listActive({ page, pageSize });
   ok(res, result);
 });
 
