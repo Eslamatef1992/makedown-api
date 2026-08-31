@@ -26,7 +26,14 @@ const updatePage = asyncHandler(async (req, res) => {
 });
 
 // ---- faqs ----
-const listFaqs = asyncHandler(async (req, res) => ok(res, await repo.listFaqs()));
+// Admin list must return the { rows, total } shape the generic admin
+// CrudPage/adminApi.listResource() expects (it reads result.rows) — a bare
+// array here means the table silently shows "No records yet" even when
+// FAQs exist, since `array.rows` is undefined.
+const listFaqs = asyncHandler(async (req, res) => {
+  const rows = await repo.listFaqs();
+  ok(res, { rows, total: rows.length });
+});
 
 const createFaq = asyncHandler(async (req, res) => {
   const data = {
@@ -61,7 +68,12 @@ const deleteFaq = asyncHandler(async (req, res) => {
 });
 
 // ---- social links (platform/url are language-neutral identifiers) ----
-const listSocialLinks = asyncHandler(async (req, res) => ok(res, await repo.listSocialLinks()));
+// Same { rows, total } shape fix as listFaqs above — the admin SocialLinksPage
+// goes through the same generic CrudPage.
+const listSocialLinks = asyncHandler(async (req, res) => {
+  const rows = await repo.listSocialLinks();
+  ok(res, { rows, total: rows.length });
+});
 
 const createSocialLink = asyncHandler(async (req, res) => {
   const item = await repo.createSocialLink({
