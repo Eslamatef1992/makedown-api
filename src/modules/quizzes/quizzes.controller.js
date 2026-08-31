@@ -50,10 +50,13 @@ const addQuestion = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Both English and Arabic question text are required');
   }
   requireParallelOptions(b.optionsEn, b.optionsAr);
+  const questionType = ['text', 'image', 'qr', 'audio'].includes(b.questionType) ? b.questionType : 'text';
   const question = await repo.createQuestion(req.params.id, {
     question_text_en: b.questionTextEn,
     question_text_ar: b.questionTextAr,
     question_image_url: b.questionImageUrl || null,
+    question_type: questionType,
+    media_url: b.mediaUrl || null,
     options_json_en: JSON.stringify(b.optionsEn),
     options_json_ar: JSON.stringify(b.optionsAr),
     correct_option_index: b.correctOptionIndex,
@@ -72,6 +75,8 @@ const updateQuestion = asyncHandler(async (req, res) => {
   if (b.questionTextEn !== undefined) data.question_text_en = b.questionTextEn;
   if (b.questionTextAr !== undefined) data.question_text_ar = b.questionTextAr;
   if (b.questionImageUrl !== undefined) data.question_image_url = b.questionImageUrl;
+  if (b.questionType !== undefined && ['text', 'image', 'qr', 'audio'].includes(b.questionType)) data.question_type = b.questionType;
+  if (b.mediaUrl !== undefined) data.media_url = b.mediaUrl;
   if (b.optionsEn !== undefined || b.optionsAr !== undefined) {
     const optionsEn = b.optionsEn !== undefined ? b.optionsEn : JSON.parse(existing.options_json_en);
     const optionsAr = b.optionsAr !== undefined ? b.optionsAr : JSON.parse(existing.options_json_ar || '[]');

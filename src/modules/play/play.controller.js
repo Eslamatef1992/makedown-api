@@ -219,14 +219,27 @@ const pickTile = asyncHandler(async (req, res) => {
     throw mapError(err);
   }
   const io = req.app.get('io');
+  let scanQrDataUrl = null;
+  let scanUrl = null;
+  if (result.awaitingScan && result.scanToken) {
+    scanUrl = `${env.frontendUrl}/play/scan/${req.params.id}/${result.scanToken}`;
+    try {
+      const QRCode = require('qrcode');
+      scanQrDataUrl = await QRCode.toDataURL(scanUrl, { margin: 1, width: 320 });
+    } catch {
+      // QR image generation failing still leaves the raw scanUrl usable.
+    }
+  }
   io.to(`game:${req.params.id}`).emit('game:tile_picked', {
     sessionId: Number(req.params.id),
     question: result.question,
     awaitingScan: result.awaitingScan,
     timeLimitSeconds: result.timeLimitSeconds,
+    scanUrl,
+    scanQrDataUrl,
   });
   if (!result.awaitingScan) scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
-  ok(res, result);
+  ok(res, { ...result, scanUrl, scanQrDataUrl });
 });
 
 const scanQuestion = asyncHandler(async (req, res) => {

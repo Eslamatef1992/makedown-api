@@ -406,7 +406,7 @@ async function pickTile(sessionId, userId, questionId) {
        turn_started_at = NULL, turn_ends_at = NULL WHERE id = ?`,
       [questionId, token, sessionId]
     );
-    return { question: sanitizeQuestion(question), awaitingScan: true };
+    return { question: sanitizeQuestion(question), awaitingScan: true, scanToken: token };
   }
 
   await pool.query(
@@ -418,12 +418,13 @@ async function pickTile(sessionId, userId, questionId) {
   return { question: sanitizeQuestion(question), awaitingScan: false, timeLimitSeconds: timeLimit };
 }
 
+// Scanning is authorized by knowing the token shown on the live game's QR
+// code, not by being the current-turn participant — a second device (e.g.
+// the player's phone) is expected to do the actual scanning.
 async function scanQuestion(sessionId, userId, token) {
   const session = await findSessionRaw(sessionId);
   if (!session || !session.current_question_id) throw new Error('NO_ACTIVE_QUESTION');
-  const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
-  if (session.current_scan_token !== token) throw new Error('INVALID_SCAN_TOKEN');
+  if (!token || session.current_scan_token !== token) throw new Error('INVALID_SCAN_TOKEN');
 
   const question = await findQuestionRaw(session.current_question_id);
   const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
