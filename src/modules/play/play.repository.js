@@ -92,13 +92,16 @@ async function getParticipants(sessionId) {
   const [rows] = await pool.query(
     `SELECT gp.*, u.full_name, u.avatar_url, gt.name AS team_name
      FROM game_participants gp
-     JOIN users u ON u.id = gp.user_id
+     LEFT JOIN users u ON u.id = gp.user_id
      LEFT JOIN game_teams gt ON gt.id = gp.team_id
      WHERE gp.session_id = ?
      ORDER BY gp.joined_at ASC`,
     [sessionId]
   );
-  return rows;
+  // Guest participants (no linked account) only have gp.guest_name — the
+  // LEFT JOIN above keeps them in the list instead of silently dropping
+  // them, so fall their display name back to it here.
+  return rows.map((row) => ({ ...row, full_name: row.full_name || row.guest_name || 'Player' }));
 }
 
 async function getTeams(sessionId) {
@@ -117,10 +120,14 @@ async function findParticipant(sessionId, userId) {
 async function findParticipantById(participantId) {
   const [rows] = await pool.query(
     `SELECT gp.*, u.full_name, u.avatar_url FROM game_participants gp
-     JOIN users u ON u.id = gp.user_id WHERE gp.id = ? LIMIT 1`,
+     LEFT JOIN users u ON u.id = gp.user_id WHERE gp.id = ? LIMIT 1`,
     [participantId]
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  // Same guest fallback as getParticipants() — without it, lifeline/score/
+  // phone-a-friend actions that resolve a guest participant by id would
+  // find the row but report a blank name.
+  return { ...rows[0], full_name: rows[0].full_name || rows[0].guest_name || 'Player' };
 }
 
 // The board: every quiz (category column) chosen for this session, with its
