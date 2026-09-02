@@ -46,6 +46,26 @@ async function initiatePayment(amount, currencyIso = 'KWD') {
   return data?.PaymentMethods || [];
 }
 
+// MyFatoorah's CustomerMobile field wants digits only — no "+", no spaces,
+// no embedded country code (that's what MobileCountryCode is for, and we
+// don't send one). Our own stored phone numbers include "+965 " as literal
+// text (see the website's Register.jsx), and a guest-entered number could
+// carry any punctuation a user types — send either through unsanitized and
+// MyFatoorah rejects the whole ExecutePayment call with a generic
+// "Invalid data" error, which is exactly what a malformed CustomerMobile
+// looks like from the outside.
+function sanitizeMobile(mobile) {
+  if (!mobile) return undefined;
+  let digits = String(mobile).replace(/\D/g, '');
+  // "00965 ..." (international dialing prefix) -> "965 ...", same as a
+  // "+965 ..." number once replace(/\D/g) has already dropped the "+".
+  if (digits.length > 10 && digits.startsWith('00965')) digits = digits.slice(2);
+  // Strip a leading Kuwait country code so we send the local 8-digit
+  // number MyFatoorah expects, e.g. "965 51234567" -> "51234567".
+  const local = digits.length > 8 && digits.startsWith('965') ? digits.slice(3) : digits;
+  return local || undefined;
+}
+
 // Kicks off a payment for one specific method and returns the hosted page
 // URL to redirect the customer's browser to.
 async function executePayment({ paymentMethodId, invoiceValue, customerName, customerEmail, customerMobile, callbackUrl, errorUrl }) {
@@ -55,7 +75,7 @@ async function executePayment({ paymentMethodId, invoiceValue, customerName, cus
     InvoiceValue: invoiceValue,
     CustomerName: customerName,
     CustomerEmail: customerEmail || undefined,
-    CustomerMobile: customerMobile || undefined,
+    CustomerMobile: sanitizeMobile(customerMobile),
     CallBackUrl: callbackUrl,
     ErrorUrl: errorUrl,
     DisplayCurrencyIso: 'KWD',
