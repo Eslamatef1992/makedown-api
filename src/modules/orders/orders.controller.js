@@ -94,13 +94,36 @@ const checkout = asyncHandler(async (req, res) => {
     if (!product || !product.is_active) {
       throw ApiError.badRequest(`Product ${raw.productId} is no longer available`);
     }
-    let unitPrice = Number(product.base_price);
+    // Same "offer price wins when it's actually a discount" rule the
+    // product detail page uses to decide what to show — checkout must
+    // charge the same number the customer saw, never the un-discounted
+    // base_price.
+    const offerPrice = Number(product.offer_price);
+    let unitPrice =
+      product.offer_price != null && offerPrice > 0 && offerPrice < Number(product.base_price)
+        ? offerPrice
+        : Number(product.base_price);
     if (raw.variantId) {
       const variant = await productsRepo.findVariantById(raw.variantId);
       if (!variant || variant.product_id !== product.id || !variant.is_active) {
         throw ApiError.badRequest(`Selected option for "${product.name_en}" is no longer available`);
       }
+      if (Number(variant.stock_quantity) <= 0) {
+        throw ApiError.badRequest(`"${product.name_en}" is out of stock`);
+      }
       unitPrice = Number(variant.price);
+    } else if (product.stock_quantity != null && Number(product.stock_quantity) <= 0) {
+      // stock_quantity is only enforced when an admin actually set a
+      // number — NULL means "not tracked", same as before this field
+      // existed, so nothing changes for products nobody has set it on.
+      throw ApiError.badRequest(`"${product.name_en}" is out of stock`);
+    }
+    // Gift box is a per-unit add-on — never trust a client-sent price for
+    // it, only whether the product actually offers one and what its price
+    // is server-side right now.
+    const wantsGiftBox = Boolean(raw.giftBox) && Boolean(product.has_gift_box) && product.gift_box_price != null;
+    if (wantsGiftBox) {
+      unitPrice = Math.round((unitPrice + Number(product.gift_box_price)) * 1000) / 1000;
     }
     const quantity = raw.quantity || 1;
     const lineTotal = Math.round(unitPrice * quantity * 1000) / 1000;
@@ -108,7 +131,7 @@ const checkout = asyncHandler(async (req, res) => {
     lineItems.push({
       product_id: product.id,
       variant_id: raw.variantId || null,
-      product_name_snapshot: product.name_en,
+      product_name_snapshot: wantsGiftBox ? `${product.name_en} + Gift Box` : product.name_en,
       quantity,
       unit_price: unitPrice,
       line_total: lineTotal,

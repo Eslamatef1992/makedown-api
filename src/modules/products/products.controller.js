@@ -13,6 +13,15 @@ async function transformInput(body, { isUpdate } = {}) {
   if (body.slug !== undefined) data.slug = body.slug;
   mapBilingualField(body, data, 'description', 'description');
   if (body.basePrice !== undefined) data.base_price = body.basePrice;
+  // Offer price is optional — an explicit empty value clears it back to
+  // "no offer" rather than being silently ignored on an edit.
+  if (body.offerPrice !== undefined) data.offer_price = body.offerPrice === '' ? null : body.offerPrice;
+  // Stock quantity left blank means "not tracked" (always purchasable),
+  // same as every product's behavior before this field existed — only an
+  // admin who explicitly sets a number turns on the out-of-stock check.
+  if (body.quantity !== undefined) data.stock_quantity = body.quantity === '' ? null : body.quantity;
+  if (body.hasGiftBox !== undefined) data.has_gift_box = body.hasGiftBox ? 1 : 0;
+  if (body.giftBoxPrice !== undefined) data.gift_box_price = body.giftBoxPrice === '' ? null : body.giftBoxPrice;
   if (body.currency !== undefined) data.currency = body.currency;
   if (body.thumbnailUrl !== undefined) data.thumbnail_url = body.thumbnailUrl;
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;

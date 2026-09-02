@@ -13,6 +13,10 @@ const item = Joi.object({
   productId: Joi.number().integer().positive().required(),
   variantId: Joi.number().integer().positive().allow(null),
   quantity: Joi.number().integer().min(1).max(999).default(1),
+  // Client just says "I want a gift box" — the price is always looked up
+  // server-side from the product (see orders.controller.js#checkout),
+  // never trusted from here.
+  giftBox: Joi.boolean(),
 });
 
 const checkout = Joi.object({
