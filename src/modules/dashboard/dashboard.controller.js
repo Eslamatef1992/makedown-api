@@ -32,4 +32,88 @@ const stats = asyncHandler(async (req, res) => {
   ok(res, Object.fromEntries(entries));
 });
 
-module.exports = { stats };
+// Best-selling products by units sold (excludes cancelled orders so a
+// scrapped order never counts as a "sale"). product_name_snapshot covers
+// products that were later deleted/renamed -- the sale still happened.
+const topProducts = asyncHandler(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 20);
+  const [rows] = await pool.query(
+    `SELECT
+       oi.product_id AS id,
+       COALESCE(p.name_en, oi.product_name_snapshot) AS name_en,
+       p.name_ar AS name_ar,
+       p.thumbnail_url AS thumbnail_url,
+       SUM(oi.quantity) AS qty_sold,
+       SUM(oi.line_total) AS revenue
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     LEFT JOIN products p ON p.id = oi.product_id
+     WHERE o.status <> 'cancelled'
+     GROUP BY oi.product_id, oi.product_name_snapshot, p.name_en, p.name_ar, p.thumbnail_url
+     ORDER BY qty_sold DESC
+     LIMIT ?`,
+    [limit]
+  );
+  ok(res, rows);
+});
+
+// Game categories ranked by how many active quizzes they hold -- a proxy
+// for how built-out/popular a category is in the game catalog.
+const topCategories = asyncHandler(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 20);
+  const [rows] = await pool.query(
+    `SELECT
+       gc.id, gc.name_en, gc.name_ar, gc.icon_url,
+       COUNT(q.id) AS quiz_count
+     FROM game_categories gc
+     LEFT JOIN quizzes q ON q.category_id = gc.id AND q.is_active = 1
+     WHERE gc.is_active = 1
+     GROUP BY gc.id, gc.name_en, gc.name_ar, gc.icon_url
+     ORDER BY quiz_count DESC, gc.sort_order ASC
+     LIMIT ?`,
+    [limit]
+  );
+  ok(res, rows);
+});
+
+// Fills in zero-value days so the frontend chart doesn't need to guess at
+// gaps -- every day in the window is present even with no rows in the DB.
+function fillDailySeries(rows, days, valueKey) {
+  const byDate = new Map(rows.map((r) => [String(r.d), Number(r[valueKey]) || 0]));
+  const out = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    out.push({ date: key, value: byDate.get(key) || 0 });
+  }
+  return out;
+}
+
+// Daily revenue from paid orders over the trailing window (default 30 days).
+const salesSeries = asyncHandler(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+  const [rows] = await pool.query(
+    `SELECT DATE(created_at) AS d, COALESCE(SUM(grand_total), 0) AS revenue
+     FROM orders
+     WHERE payment_status = 'paid' AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+     GROUP BY DATE(created_at)`,
+    [days - 1]
+  );
+  ok(res, fillDailySeries(rows, days, 'revenue'));
+});
+
+// Daily new-user signups over the trailing window (default 30 days).
+const newUsersSeries = asyncHandler(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+  const [rows] = await pool.query(
+    `SELECT DATE(created_at) AS d, COUNT(*) AS n
+     FROM users
+     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+     GROUP BY DATE(created_at)`,
+    [days - 1]
+  );
+  ok(res, fillDailySeries(rows, days, 'n'));
+});
+
+module.exports = { stats, topProducts, topCategories, salesSeries, newUsersSeries };
