@@ -44,8 +44,24 @@ const optionalAuth = require('../../middlewares/optionalAuth.middleware');
  *     security: [{ bearerAuth: [] }]
  *     parameters: [{ in: path, name: followerId, required: true, schema: { type: integer } }]
  *     responses: { 200: { description: Follower removed } }
+ * /users:
+ *   get:
+ *     tags: [Social]
+ *     summary: Discover players — search active users by name (or browse newest, with no search term)
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: pageSize
+ *         schema: { type: integer }
+ *     responses: { 200: { description: Paginated list of public profiles } }
  */
 router.delete('/me/followers/:followerId', requireAuth, controller.removeFollower);
+router.get('/', optionalAuth, controller.searchUsers);
 router.get('/:id', optionalAuth, controller.getProfile);
 router.post('/:id/follow', requireAuth, controller.followUser);
 router.delete('/:id/follow', requireAuth, controller.unfollowUser);

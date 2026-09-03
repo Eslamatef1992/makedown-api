@@ -71,6 +71,35 @@ async function listFollowing(userId, { page = 1, pageSize = 20 } = {}) {
   return { rows, total, page: Number(page) || 1, pageSize: limit };
 }
 
+// "Discover Players" — browse/search every active user (except the viewer),
+// newest accounts first when there's no search term. Deliberately separate
+// from the admin `users.repository` list: this one is public, excludes
+// inactive accounts, and never exposes anything beyond the public profile
+// fields (see follows.controller.js's `publicUser`).
+async function searchUsers(query, viewerId, { page = 1, pageSize = 20 } = {}) {
+  const limit = Math.min(Number(pageSize) || 20, 100);
+  const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
+  const term = (query || '').trim();
+  const conditions = ['is_active = 1'];
+  const params = [];
+  if (viewerId) {
+    conditions.push('id != ?');
+    params.push(viewerId);
+  }
+  if (term) {
+    conditions.push('full_name LIKE ?');
+    params.push(`%${term}%`);
+  }
+  const whereClause = conditions.join(' AND ');
+
+  const [rows] = await pool.query(
+    `SELECT id, full_name, avatar_url, bio FROM users WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+  const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM users WHERE ${whereClause}`, params);
+  return { rows, total: countRows[0].total, page: Number(page) || 1, pageSize: limit };
+}
+
 module.exports = {
   findPublicUser,
   isFollowing,
@@ -81,4 +110,5 @@ module.exports = {
   countFollowing,
   listFollowers,
   listFollowing,
+  searchUsers,
 };

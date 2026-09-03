@@ -66,4 +66,14 @@ const listFollowing = asyncHandler(async (req, res) => {
   ok(res, { ...result, rows: result.rows.map(withFollowedAt) });
 });
 
-module.exports = { getProfile, followUser, unfollowUser, removeFollower, listFollowers, listFollowing };
+// "Discover Players" search — every active user except the viewer, optionally
+// filtered by name. Available to guests too (optionalAuth), just without the
+// per-row `isFollowedByMe` flag since there's no viewer to check against.
+const searchUsers = asyncHandler(async (req, res) => {
+  const { search, page, pageSize } = req.query;
+  const result = await repo.searchUsers(search, req.user?.id, { page, pageSize });
+  const followedIds = req.user ? await repo.isFollowingBulk(req.user.id, result.rows.map((r) => r.id)) : new Set();
+  ok(res, { ...result, rows: result.rows.map((row) => ({ ...publicUser(row), isFollowedByMe: followedIds.has(row.id) })) });
+});
+
+module.exports = { getProfile, followUser, unfollowUser, removeFollower, listFollowers, listFollowing, searchUsers };
