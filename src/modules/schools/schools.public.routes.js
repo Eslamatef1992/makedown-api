@@ -3,17 +3,6 @@ const controller = require('./schools.controller');
 
 /**
  * @swagger
- * /schools/verify/{code}:
- *   get:
- *     tags: [Schools]
- *     summary: Verify a school game code (public — used by the education flow)
- *     parameters: [{ in: path, name: code, required: true, schema: { type: string } }]
- *     responses:
- *       200: { description: Valid code — returns the school }
- *       404: { description: Invalid code }
- */
-/**
- * @swagger
  * /schools:
  *   get:
  *     tags: [Schools]
@@ -30,8 +19,6 @@ const controller = require('./schools.controller');
  *     responses: { 200: { description: List of open games for this school } }
  */
 router.get('/', controller.publicList);
-
-router.get('/verify/:code', controller.verifyCode);
 
 router.get('/:id/games', controller.publicGames);
 

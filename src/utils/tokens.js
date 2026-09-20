@@ -61,7 +61,7 @@ module.exports.verifyAdminAccessToken = verifyAdminAccessToken;
 // and every route checks payload.type before trusting it.
 function signSchoolAccessToken(school) {
   return jwt.sign(
-    { sub: school.id, code: school.code, type: 'school_access' },
+    { sub: school.id, type: 'school_access' },
     env.jwt.adminSecret,
     { expiresIn: env.jwt.adminExpiresIn }
   );

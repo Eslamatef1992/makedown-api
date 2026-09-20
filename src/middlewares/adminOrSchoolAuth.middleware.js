@@ -19,7 +19,7 @@ module.exports = function requireAdminOrSchoolAuth(req, res, next) {
     if (payload.type === 'admin_access') {
       req.admin = { id: payload.sub, email: payload.email, roleId: payload.roleId };
     } else if (payload.type === 'school_access') {
-      req.school = { id: payload.sub, code: payload.code };
+      req.school = { id: payload.sub };
     } else {
       throw new Error('wrong token type');
     }
