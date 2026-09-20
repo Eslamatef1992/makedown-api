@@ -352,9 +352,20 @@ async function createSession({
   ]);
 
   if (mode === 'team') {
+    const team1GuestNames = team1Players.filter((name) => String(name || '').trim()).map((name) => String(name).trim());
+    const team2GuestNames = team2Players.filter((name) => String(name || '').trim()).map((name) => String(name).trim());
+    // Team 1 always has the host, but naming teammates is optional — team 2
+    // has no host of its own, so if nobody named a player for it, it would
+    // otherwise end up with zero game_participants rows and could never
+    // take a turn, be scored, or show a +/- control at all (the turn
+    // engine and score adjustment both act on a real participant row, not
+    // the team row directly). Give it one implicit placeholder player so
+    // it's always actionable even when left fully anonymous.
+    if (!team2GuestNames.length) team2GuestNames.push('Player 1');
+
     const guestRows = [
-      ...team1Players.filter((name) => String(name || '').trim()).map((name) => [sessionId, String(name).trim(), team1Id]),
-      ...team2Players.filter((name) => String(name || '').trim()).map((name) => [sessionId, String(name).trim(), team2Id]),
+      ...team1GuestNames.map((name) => [sessionId, name, team1Id]),
+      ...team2GuestNames.map((name) => [sessionId, name, team2Id]),
     ];
     if (guestRows.length) {
       await pool.query('INSERT INTO game_participants (session_id, guest_name, team_id) VALUES ?', [guestRows]);
