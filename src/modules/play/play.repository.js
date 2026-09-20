@@ -482,17 +482,30 @@ async function advanceTurn(sessionId) {
   );
 }
 
-function requireTurn(session, participant) {
+// Every website game is played pass-the-device style (see CategorySelectPage
+// / LiveGamePage on the frontend): only the host ever logs in, and runs the
+// single shared screen on behalf of every named teammate, who has no
+// account of their own. So a turn action is allowed either when the caller
+// genuinely owns it (their own account happens to be the current-turn
+// participant) or when the caller is this session's host acting on behalf
+// of whoever's turn it currently is — otherwise a guest's (or a second
+// team's) turn could never be taken at all. Returns the id of the
+// participant the action should actually be recorded/scored against, which
+// is always the real current-turn participant, never the host's own id.
+function resolveActingParticipant(session, participant, userId) {
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const activeParticipantId = turnOrder[session.current_turn_index];
-  if (!participant || activeParticipantId !== participant.id) throw new Error('NOT_YOUR_TURN');
+  if (!activeParticipantId) throw new Error('NOT_YOUR_TURN');
+  if (participant && participant.id === activeParticipantId) return activeParticipantId;
+  if (session.host_user_id === userId) return activeParticipantId;
+  throw new Error('NOT_YOUR_TURN');
 }
 
 async function pickTile(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
+  resolveActingParticipant(session, participant, userId);
   if (session.current_question_id) throw new Error('TILE_ALREADY_IN_PROGRESS');
 
   const belongs = await questionBelongsToSession(sessionId, questionId);
@@ -565,7 +578,7 @@ async function resolveTurn(sessionId, { participantId, selectedOptionIndex = nul
 
   await advanceTurn(sessionId);
 
-  return { question, isCorrect, correctOptionIndex: question.correct_option_index };
+  return { question, isCorrect, correctOptionIndex: question.correct_option_index, participantId };
 }
 
 async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, timeTakenMs) {
@@ -578,9 +591,9 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
   if (session.turn_ends_at && new Date(session.turn_ends_at).getTime() < Date.now()) throw new Error('TIME_EXPIRED');
 
   const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
+  const activeParticipantId = resolveActingParticipant(session, participant, userId);
 
-  return resolveTurn(sessionId, { participantId: participant.id, selectedOptionIndex, timeTakenMs });
+  return resolveTurn(sessionId, { participantId: activeParticipantId, selectedOptionIndex, timeTakenMs });
 }
 
 // Called by the server-side turn timer when nobody answered in time.
@@ -616,15 +629,15 @@ async function useFiftyFifty(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
-  if (await hasUsedLifeline(sessionId, participant.id, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
+  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  if (await hasUsedLifeline(sessionId, activeParticipantId, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
 
   const question = await findQuestionRaw(questionId);
   const options = parseJsonColumn(question.options_json_en, []);
   const wrongIndices = options.map((_, i) => i).filter((i) => i !== question.correct_option_index);
   const hide = shuffle(wrongIndices).slice(0, Math.max(0, options.length - 2));
 
-  await markLifelineUsed(sessionId, participant.id, 'fifty_fifty', questionId);
+  await markLifelineUsed(sessionId, activeParticipantId, 'fifty_fifty', questionId);
   return { hideOptionIndexes: hide };
 }
 
@@ -632,29 +645,29 @@ async function useSkip(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
-  if (await hasUsedLifeline(sessionId, participant.id, 'skip')) throw new Error('LIFELINE_ALREADY_USED');
+  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  if (await hasUsedLifeline(sessionId, activeParticipantId, 'skip')) throw new Error('LIFELINE_ALREADY_USED');
 
-  await markLifelineUsed(sessionId, participant.id, 'skip', questionId);
-  return resolveTurn(sessionId, { participantId: participant.id, selectedOptionIndex: null });
+  await markLifelineUsed(sessionId, activeParticipantId, 'skip', questionId);
+  return resolveTurn(sessionId, { participantId: activeParticipantId, selectedOptionIndex: null });
 }
 
 async function requestPhoneAFriend(sessionId, userId, questionId, targetParticipantId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  requireTurn(session, participant);
-  if (await hasUsedLifeline(sessionId, participant.id, 'phone_a_friend')) throw new Error('LIFELINE_ALREADY_USED');
+  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  if (await hasUsedLifeline(sessionId, activeParticipantId, 'phone_a_friend')) throw new Error('LIFELINE_ALREADY_USED');
 
   const target = await findParticipantById(targetParticipantId);
   if (!target || target.session_id !== Number(sessionId)) throw new Error('TARGET_NOT_IN_SESSION');
-  if (target.id === participant.id) throw new Error('CANNOT_TARGET_SELF');
+  if (target.id === activeParticipantId) throw new Error('CANNOT_TARGET_SELF');
 
-  await markLifelineUsed(sessionId, participant.id, 'phone_a_friend', questionId);
+  await markLifelineUsed(sessionId, activeParticipantId, 'phone_a_friend', questionId);
   const [result] = await pool.query(
     `INSERT INTO game_lifeline_requests (session_id, requester_participant_id, target_participant_id, question_id)
      VALUES (?, ?, ?, ?)`,
-    [sessionId, participant.id, targetParticipantId, questionId]
+    [sessionId, activeParticipantId, targetParticipantId, questionId]
   );
   const question = await findQuestionRaw(questionId);
   return { requestId: result.insertId, targetUserId: target.user_id, question: sanitizeQuestion(question) };

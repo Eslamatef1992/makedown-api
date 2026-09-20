@@ -28,7 +28,7 @@ function scheduleExpiry(sessionId, io, ms) {
     timers.delete(sessionId);
     try {
       const result = await repo.expireTurn(sessionId);
-      if (result) await broadcastTurnResult(io, sessionId, null, result);
+      if (result) await broadcastTurnResult(io, sessionId, result.participantId, result);
     } catch (err) {
       // Nothing to resolve (already answered by the time the timer fired) — ignore.
     }
@@ -337,8 +337,10 @@ const submitAnswer = asyncHandler(async (req, res) => {
     throw mapError(err);
   }
   const io = req.app.get('io');
-  const participant = await repo.findParticipant(req.params.id, req.user.id);
-  await broadcastTurnResult(io, req.params.id, participant.id, result);
+  // result.participantId is whoever's turn it actually was (a teammate or
+  // the other team, not necessarily the logged-in host who tapped Next on
+  // their behalf) — broadcast that, not the caller's own participant row.
+  await broadcastTurnResult(io, req.params.id, result.participantId, result);
   ok(res, { isCorrect: result.isCorrect, correctOptionIndex: result.correctOptionIndex });
 });
 
@@ -367,8 +369,7 @@ const skip = asyncHandler(async (req, res) => {
     throw mapError(err);
   }
   const io = req.app.get('io');
-  const participant = await repo.findParticipant(req.params.id, req.user.id);
-  await broadcastTurnResult(io, req.params.id, participant.id, result);
+  await broadcastTurnResult(io, req.params.id, result.participantId, result);
   ok(res, { skipped: true });
 });
 
