@@ -27,6 +27,84 @@ function randomToken() {
   return require('crypto').randomBytes(16).toString('hex');
 }
 
+// ---------------------------------------------------------------------------
+// Board tile selection — each game (quiz) shows exactly 6 point tiles: 2 at
+// 200, 2 at 400, 2 at 600. A quiz's question bank can hold more than 6, in
+// which case each session gets a different random 6 — but the pick has to
+// stay the *same* for the lifetime of one session, since the client polls
+// getBoard() repeatedly (refresh/socket events) and re-shuffling on every
+// call would make tiles jump around mid-game. So the selection is a pure,
+// deterministic function of (sessionId, quizId, points) rather than a fresh
+// Math.random() draw — same inputs always produce the same 2 questions.
+// ---------------------------------------------------------------------------
+const BOARD_POINT_TIERS = [200, 400, 600];
+const TILES_PER_QUIZ_TIER = 2;
+
+function seedFrom(...parts) {
+  const str = parts.join(':');
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededShuffle(items, seed) {
+  let state = seed || 1;
+  const next = () => {
+    state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+    state >>>= 0;
+    return state / 4294967296;
+  };
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// The session's chosen categories (quizzes) and its Solo/Team question
+// filter — shared by getBoard, questionBelongsToSession and
+// boardFullyPlayed so all three agree on exactly the same tile selection.
+async function getSessionQuizIdsAndMode(sessionId) {
+  const [sessionRows] = await pool.query('SELECT mode FROM game_sessions WHERE id = ? LIMIT 1', [sessionId]);
+  const sessionMode = sessionRows[0]?.mode === 'team' ? 'team' : 'solo';
+  const [quizRows] = await pool.query(
+    `SELECT gsc.quiz_id FROM game_session_categories gsc WHERE gsc.session_id = ? ORDER BY gsc.sort_order ASC`,
+    [sessionId]
+  );
+  return { sessionMode, quizIds: quizRows.map((r) => r.quiz_id) };
+}
+
+// Returns the quiz_questions rows that make up this session's board — up to
+// TILES_PER_QUIZ_TIER questions per point tier per quiz (fewer if a quiz's
+// bank doesn't have enough at some tier), deterministically picked per
+// (sessionId, quizId, points) so the set never shifts once a game starts.
+async function getSessionBoardQuestions(sessionId, sessionMode, quizIds) {
+  if (!quizIds.length) return [];
+  const [questions] = await pool.query(
+    `SELECT * FROM quiz_questions WHERE quiz_id IN (?) AND mode IN ('both', ?) ORDER BY quiz_id ASC, points ASC, sort_order ASC`,
+    [quizIds, sessionMode]
+  );
+  const byQuiz = new Map();
+  for (const q of questions) {
+    if (!byQuiz.has(q.quiz_id)) byQuiz.set(q.quiz_id, []);
+    byQuiz.get(q.quiz_id).push(q);
+  }
+  const selected = [];
+  for (const quizId of quizIds) {
+    const quizQuestions = byQuiz.get(quizId) || [];
+    for (const points of BOARD_POINT_TIERS) {
+      const tierQuestions = quizQuestions.filter((q) => q.points === points);
+      const seed = seedFrom(sessionId, quizId, points);
+      selected.push(...seededShuffle(tierQuestions, seed).slice(0, TILES_PER_QUIZ_TIER));
+    }
+  }
+  return selected;
+}
+
 // Strips the answer key from a question row unless explicitly allowed
 // (only once it has been answered / the turn has resolved).
 function sanitizeQuestion(question, { revealAnswer = false } = {}) {
@@ -134,12 +212,6 @@ async function findParticipantById(participantId) {
 // questions as point tiles. `used` reflects whether that tile already has a
 // game_answers row (already played, can't be picked again).
 async function getBoard(sessionId) {
-  const [sessionRows] = await pool.query('SELECT mode FROM game_sessions WHERE id = ? LIMIT 1', [sessionId]);
-  // A question authored as Solo-only or Team-only only shows up on a board
-  // for a matching session; 'both' (the default) always shows. A 'random'
-  // session is treated like solo for this filter.
-  const sessionMode = sessionRows[0]?.mode === 'team' ? 'team' : 'solo';
-
   const [quizzes] = await pool.query(
     `SELECT q.id, q.title_en, q.title_ar, q.category_id, gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
             gsc.sort_order
@@ -152,11 +224,11 @@ async function getBoard(sessionId) {
   );
   if (!quizzes.length) return [];
 
-  const quizIds = quizzes.map((q) => q.id);
-  const [questions] = await pool.query(
-    `SELECT * FROM quiz_questions WHERE quiz_id IN (?) AND mode IN ('both', ?) ORDER BY quiz_id ASC, points ASC, sort_order ASC`,
-    [quizIds, sessionMode]
-  );
+  // A question authored as Solo-only or Team-only only shows up on a board
+  // for a matching session; 'both' (the default) always shows. A 'random'
+  // session is treated like solo for this filter.
+  const { sessionMode, quizIds } = await getSessionQuizIdsAndMode(sessionId);
+  const boardQuestions = await getSessionBoardQuestions(sessionId, sessionMode, quizIds);
   const [usedRows] = await pool.query(
     `SELECT DISTINCT question_id FROM game_answers WHERE session_id = ?`,
     [sessionId]
@@ -165,7 +237,7 @@ async function getBoard(sessionId) {
 
   return quizzes.map((quiz) => ({
     ...quiz,
-    questions: questions
+    questions: boardQuestions
       .filter((q) => q.quiz_id === quiz.id)
       .map((q) => ({ ...sanitizeQuestion(q), used: usedIds.has(q.id) })),
   }));
@@ -177,13 +249,9 @@ async function findQuestionRaw(id) {
 }
 
 async function questionBelongsToSession(sessionId, questionId) {
-  const [rows] = await pool.query(
-    `SELECT 1 FROM quiz_questions qq
-     JOIN game_session_categories gsc ON gsc.quiz_id = qq.quiz_id
-     WHERE qq.id = ? AND gsc.session_id = ? LIMIT 1`,
-    [questionId, sessionId]
-  );
-  return rows.length > 0;
+  const { sessionMode, quizIds } = await getSessionQuizIdsAndMode(sessionId);
+  const boardQuestions = await getSessionBoardQuestions(sessionId, sessionMode, quizIds);
+  return boardQuestions.some((q) => q.id === Number(questionId));
 }
 
 async function isQuestionUsed(sessionId, questionId) {
@@ -195,12 +263,9 @@ async function isQuestionUsed(sessionId, questionId) {
 }
 
 async function boardFullyPlayed(sessionId) {
-  const [[{ total }]] = await pool.query(
-    `SELECT COUNT(*) AS total FROM quiz_questions qq
-     JOIN game_session_categories gsc ON gsc.quiz_id = qq.quiz_id
-     WHERE gsc.session_id = ?`,
-    [sessionId]
-  );
+  const { sessionMode, quizIds } = await getSessionQuizIdsAndMode(sessionId);
+  const boardQuestions = await getSessionBoardQuestions(sessionId, sessionMode, quizIds);
+  const total = boardQuestions.length;
   const [[{ used }]] = await pool.query(
     'SELECT COUNT(DISTINCT question_id) AS used FROM game_answers WHERE session_id = ?',
     [sessionId]
