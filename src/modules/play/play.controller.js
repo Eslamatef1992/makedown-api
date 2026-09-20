@@ -28,7 +28,15 @@ function scheduleExpiry(sessionId, io, ms) {
     timers.delete(sessionId);
     try {
       const result = await repo.expireTurn(sessionId);
-      if (result) await broadcastTurnResult(io, sessionId, result.participantId, result);
+      if (result) {
+        await broadcastTurnResult(io, sessionId, result.participantId, result);
+        // Team mode: nobody answered in time, so the same question just got
+        // handed to the other team — arm a fresh timer for their turn at it,
+        // same as a real submit would.
+        if (result.roundComplete === false && !result.awaitingScan) {
+          scheduleExpiry(sessionId, io, result.timeLimitSeconds * 1000);
+        }
+      }
     } catch (err) {
       // Nothing to resolve (already answered by the time the timer fired) — ignore.
     }
@@ -44,7 +52,45 @@ async function broadcastTurnResult(io, sessionId, participantId, result) {
     questionId: result.question.id,
     isCorrect: result.isCorrect,
     correctOptionIndex: result.correctOptionIndex,
+    // Team mode only: false while the same question is still being handed
+    // to the other team, true once the tile is actually settled — see
+    // play.repository.js's resolveTurn.
+    roundComplete: result.roundComplete !== false,
+    winnerParticipantId: result.winnerParticipantId || null,
+    winnerName: result.winnerName || null,
+    points: result.points || 0,
   });
+
+  if (result.roundComplete === false) {
+    // Same tile, other team's turn — the tile isn't settled yet, so don't
+    // touch game:state's currentQuestion/turn flow beyond announcing whose
+    // turn it now is and (for a QR question) how to reveal it again.
+    let scanUrl = null;
+    let scanQrDataUrl = null;
+    if (result.awaitingScan && result.scanToken) {
+      scanUrl = `${env.frontendUrl}/play/scan/${sessionId}/${result.scanToken}`;
+      try {
+        const QRCode = require('qrcode');
+        scanQrDataUrl = await QRCode.toDataURL(scanUrl, { margin: 1, width: 320 });
+      } catch {
+        // QR image generation failing still leaves the raw scanUrl usable.
+      }
+    }
+    io.to(`game:${sessionId}`).emit('game:next_team_turn', {
+      sessionId: Number(sessionId),
+      question: repo.sanitizeQuestion(result.question),
+      awaitingScan: Boolean(result.awaitingScan),
+      timeLimitSeconds: result.timeLimitSeconds,
+      scanUrl,
+      scanQrDataUrl,
+    });
+    io.to(`game:${sessionId}`).emit('game:state', detail);
+    if (detail.currentTurnParticipantId) {
+      io.to(`game:${sessionId}`).emit('game:turn_changed', { sessionId: Number(sessionId), currentTurnParticipantId: detail.currentTurnParticipantId });
+    }
+    return;
+  }
+
   io.to(`game:${sessionId}`).emit('game:state', detail);
   if (detail.status === 'finished') {
     io.to(`game:${sessionId}`).emit('game:ended', { sessionId: Number(sessionId), participants: detail.participants, teams: detail.teams });
@@ -341,6 +387,11 @@ const submitAnswer = asyncHandler(async (req, res) => {
   // the other team, not necessarily the logged-in host who tapped Next on
   // their behalf) — broadcast that, not the caller's own participant row.
   await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  // Team mode: the same question just got handed to the other team — arm
+  // their answer window, same as picking a fresh tile would.
+  if (result.roundComplete === false && !result.awaitingScan) {
+    scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
+  }
   ok(res, { isCorrect: result.isCorrect, correctOptionIndex: result.correctOptionIndex });
 });
 
@@ -370,6 +421,9 @@ const skip = asyncHandler(async (req, res) => {
   }
   const io = req.app.get('io');
   await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  if (result.roundComplete === false && !result.awaitingScan) {
+    scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
+  }
   ok(res, { skipped: true });
 });
 

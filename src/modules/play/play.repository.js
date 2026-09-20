@@ -7,6 +7,16 @@ const { parseJsonColumn } = require('../../utils/jsonColumn');
 
 const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 const DEFAULT_TIME_LIMIT = 20;
+// Team mode only: when the same question is handed to the second team (see
+// advanceSubTurn), they haven't seen it yet and — in the pass-the-device
+// model this site uses — first have to physically be handed the shared
+// screen. Reusing the question's own short timer for that hand-off is what
+// made the second team's turn look broken: the timer had often already run
+// out (from real hand-off time, or just the delay of anyone reading the
+// question for the first time) before they ever got to tap an answer, so it
+// silently auto-resolved as a loss. Give their sub-turn some extra breathing
+// room on top of the question's own time limit.
+const TEAM_HANDOFF_GRACE_SECONDS = 15;
 
 function randomJoinCode() {
   let code = '';
@@ -572,7 +582,7 @@ async function scanQuestion(sessionId, userId, token) {
 async function advanceSubTurn(sessionId, question) {
   const session = await findSessionRaw(sessionId);
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
-  const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
+  const timeLimit = (question.time_limit_seconds || DEFAULT_TIME_LIMIT) + TEAM_HANDOFF_GRACE_SECONDS;
   if (!turnOrder.length) return { awaitingScan: false, timeLimitSeconds: timeLimit };
 
   const [activeRows] = await pool.query(
