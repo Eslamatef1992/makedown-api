@@ -7,10 +7,17 @@ const { mapBilingualField, requireBilingual } = require('../../utils/bilingual')
 const { slugify, ensureUniqueSlug } = require('../../utils/slugify');
 const variantTypesRepo = require('../variant-types/variant-types.repository');
 
-async function transformInput(body, { isUpdate } = {}) {
+async function transformInput(body, { isUpdate, existing } = {}) {
   const data = {};
   mapBilingualField(body, data, 'name', 'name');
-  if (body.slug !== undefined) data.slug = body.slug;
+  // The admin's Slug field is free text — always normalize whatever was
+  // typed into a real URL slug (lowercase, hyphenated, no stray spaces)
+  // instead of writing it straight to the column. Without this, a product
+  // could end up with a slug like "Makedown og hoodie " (raw, with a
+  // trailing space) that the public site's /products/:slug route can't
+  // reliably be linked to or matched against, which is exactly what showed
+  // up as "Product not found" on the storefront after an edit.
+  if (body.slug !== undefined) data.slug = String(body.slug || '').trim() ? slugify(body.slug) : '';
   mapBilingualField(body, data, 'description', 'description');
   if (body.basePrice !== undefined) data.base_price = body.basePrice;
   // Offer price is optional — an explicit empty value clears it back to
@@ -28,6 +35,15 @@ async function transformInput(body, { isUpdate } = {}) {
   requireBilingual(data, ['name'], isUpdate);
   if (!isUpdate && !data.slug) {
     data.slug = await ensureUniqueSlug(repo, slugify(data.name_en || 'product'));
+  } else if (data.slug) {
+    // Normalizing the slug above can make two different products collide
+    // (or just re-hash the same product's own unchanged slug) — only
+    // reassign a -2/-3 suffix when it would actually clash with a
+    // *different* product, same as create's uniqueness check.
+    const clashing = await repo.findBy('slug', data.slug);
+    if (clashing && (!existing || String(clashing.id) !== String(existing.id))) {
+      data.slug = await ensureUniqueSlug(repo, data.slug);
+    }
   }
   return data;
 }
