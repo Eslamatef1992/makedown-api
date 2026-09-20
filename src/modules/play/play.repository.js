@@ -311,7 +311,14 @@ async function findSessionDetail(sessionId) {
 // Session lifecycle
 // ---------------------------------------------------------------------------
 
-async function createSession({ hostUserId, mode, quizIds = [], title, isPublic = false, maxPlayers, schoolId }) {
+async function createSession({
+  hostUserId, mode, quizIds = [], title, isPublic = false, maxPlayers, schoolId,
+  // Team mode: custom team names, an optional headcount hint per team
+  // (game_teams.capacity — not enforced, just informational), and up to a
+  // few pre-named guest teammates per team (no account needed — they play
+  // under game_participants.guest_name, same as any QR-join guest).
+  team1Name, team2Name, team1Capacity, team2Capacity, team1Players = [], team2Players = [],
+}) {
   const joinCode = await uniqueJoinCode();
   const [result] = await pool.query(
     `INSERT INTO game_sessions (quiz_id, title, host_user_id, school_id, mode, is_public, max_players, join_code, status)
@@ -326,17 +333,32 @@ async function createSession({ hostUserId, mode, quizIds = [], title, isPublic =
   }
 
   let hostTeamId = null;
+  let team1Id = null;
+  let team2Id = null;
   if (mode === 'team') {
-    await pool.query('INSERT INTO game_teams (session_id, name) VALUES (?, ?), (?, ?)', [
-      sessionId, 'Team A', sessionId, 'Team B',
+    await pool.query('INSERT INTO game_teams (session_id, name, capacity) VALUES (?, ?, ?), (?, ?, ?)', [
+      sessionId, team1Name || 'Team A', team1Capacity || null,
+      sessionId, team2Name || 'Team B', team2Capacity || null,
     ]);
     const teams = await getTeams(sessionId);
-    hostTeamId = teams[0].id;
+    team1Id = teams[0].id;
+    team2Id = teams[1].id;
+    hostTeamId = team1Id;
   }
 
   await pool.query('INSERT INTO game_participants (session_id, user_id, team_id) VALUES (?, ?, ?)', [
     sessionId, hostUserId, hostTeamId,
   ]);
+
+  if (mode === 'team') {
+    const guestRows = [
+      ...team1Players.filter((name) => String(name || '').trim()).map((name) => [sessionId, String(name).trim(), team1Id]),
+      ...team2Players.filter((name) => String(name || '').trim()).map((name) => [sessionId, String(name).trim(), team2Id]),
+    ];
+    if (guestRows.length) {
+      await pool.query('INSERT INTO game_participants (session_id, guest_name, team_id) VALUES ?', [guestRows]);
+    }
+  }
 
   return findSessionDetail(sessionId);
 }

@@ -144,9 +144,15 @@ const listPlayableQuizzes = asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const createSession = asyncHandler(async (req, res) => {
-  const { mode, quizIds, title, isPublic, maxPlayers, schoolId } = req.body;
+  const {
+    mode, quizIds, title, isPublic, maxPlayers, schoolId,
+    team1Name, team2Name, team1Capacity, team2Capacity, team1Players, team2Players,
+  } = req.body;
   if (!['solo', 'team', 'random'].includes(mode)) throw ApiError.badRequest('mode must be solo, team, or random');
   if (!Array.isArray(quizIds) || !quizIds.length) throw ApiError.badRequest('Select at least one category');
+  if (mode === 'team' && (!String(team1Name || '').trim() || !String(team2Name || '').trim())) {
+    throw ApiError.badRequest('team1Name and team2Name are required for a team game');
+  }
 
   await requireGameCredit(req.user.id);
 
@@ -158,6 +164,12 @@ const createSession = asyncHandler(async (req, res) => {
     isPublic: Boolean(isPublic) || mode === 'random',
     maxPlayers,
     schoolId,
+    team1Name,
+    team2Name,
+    team1Capacity: team1Capacity ? Number(team1Capacity) : null,
+    team2Capacity: team2Capacity ? Number(team2Capacity) : null,
+    team1Players: Array.isArray(team1Players) ? team1Players : [],
+    team2Players: Array.isArray(team2Players) ? team2Players : [],
   });
 
   try {
