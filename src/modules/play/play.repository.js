@@ -213,7 +213,8 @@ async function findParticipantById(participantId) {
 // game_answers row (already played, can't be picked again).
 async function getBoard(sessionId) {
   const [quizzes] = await pool.query(
-    `SELECT q.id, q.title_en, q.title_ar, q.category_id, gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
+    `SELECT q.id, q.title_en, q.title_ar, q.category_id, q.cover_image_url,
+            gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
             gsc.sort_order
      FROM game_session_categories gsc
      JOIN quizzes q ON q.id = gsc.quiz_id
