@@ -13,12 +13,21 @@ async function transformInput(body, { isUpdate } = {}) {
     if (body[k] !== undefined) data[{ logoUrl: 'logo_url', contactEmail: 'contact_email', contactPhone: 'contact_phone' }[k] || k] = body[k];
   });
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
+  // New schools default to active — findByCode() (used for both the school
+  // login and the public "verify code" lookup) requires is_active = 1, and
+  // an admin who forgets to tick the checkbox would otherwise create a
+  // school that can never log in and never shows up publicly.
+  else if (!isUpdate) data.is_active = 1;
+
   // Password is how the school logs in to create/manage its own games (see
-  // admin-auth.service.js) — optional on edit (leave blank to keep it),
-  // hashed the same way admin passwords are.
+  // admin-auth.service.js) — required when creating (there's no "current"
+  // password yet to fall back on), optional on edit (leave blank to keep
+  // it), hashed the same way admin passwords are.
   if (body.password) {
     if (String(body.password).length < 6) throw ApiError.badRequest('Password must be at least 6 characters');
     data.password_hash = await bcrypt.hash(body.password, 10);
+  } else if (!isUpdate) {
+    throw ApiError.badRequest('Password is required to create a school');
   }
   requireBilingual(data, ['name'], isUpdate);
   return data;
