@@ -1,4 +1,5 @@
 const repo = require('./game-sessions.repository');
+const quizzesRepo = require('../quizzes/quizzes.repository');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
@@ -40,6 +41,17 @@ const create = asyncHandler(async (req, res) => {
   if (!Array.isArray(quizIds) || !quizIds.length) throw ApiError.badRequest('Select at least one category');
   if (audience !== undefined && audience !== null && !['girls', 'boys', 'mixed'].includes(audience)) {
     throw ApiError.badRequest('audience must be girls, boys, or mixed');
+  }
+
+  // A school can only bundle its own private games onto its board — never
+  // the global catalog or another school's games, even via a crafted
+  // request (the admin UI only ever offers a school's own list to begin
+  // with, this is the server-side backstop).
+  if (req.school) {
+    const ids = quizIds.map(Number);
+    const owned = await Promise.all(ids.map((qid) => quizzesRepo.findById(qid)));
+    const notOwned = owned.some((q) => !q || Number(q.school_id) !== Number(req.school.id));
+    if (notOwned) throw ApiError.badRequest('One or more selected games are not yours');
   }
 
   const session = await repo.createSchoolGame({

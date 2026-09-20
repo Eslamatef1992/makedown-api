@@ -260,8 +260,11 @@ const joinByCode = asyncHandler(async (req, res) => {
 
   // Rejoining a game you're already part of (reconnect, double-tap) must
   // never spend a second free game or credit — only a genuinely new join does.
+  // A school-hosted game (session.school_id set) never charges a player's
+  // personal free game/package credit either — the school is hosting the
+  // event, a student shouldn't burn their own credit just to attend it.
   const alreadyIn = await repo.findParticipant(session.id, req.user.id);
-  if (!alreadyIn) await requireGameCredit(req.user.id);
+  if (!alreadyIn && !session.school_id) await requireGameCredit(req.user.id);
 
   try {
     await repo.joinSession(session.id, req.user.id);

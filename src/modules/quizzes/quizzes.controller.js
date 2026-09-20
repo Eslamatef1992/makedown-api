@@ -24,9 +24,30 @@ async function assertCategoryHasRoom(categoryId, { excludeQuizId } = {}) {
   }
 }
 
+// A school token only ever touches its own private games — 404 (not 403)
+// on a mismatch so a school can't probe which ids exist for other schools.
+function assertOwned(quiz, req) {
+  if (req.school && Number(quiz.school_id) !== Number(req.school.id)) {
+    throw ApiError.notFound('Quiz not found');
+  }
+}
+
 async function transformQuiz(body, { req, existing, isUpdate } = {}) {
+  if (isUpdate) assertOwned(existing, req);
+
   const data = {};
-  if (body.categoryId !== undefined) data.category_id = body.categoryId || null;
+  // A school's own games are private (no global category board, no cap) —
+  // category_id is forced null and the school_id is forced to the
+  // authenticated school, regardless of what the request body says, so a
+  // school token can never land a quiz in the shared Make Down Games catalog
+  // or under someone else's school.
+  if (req.school) {
+    data.school_id = req.school.id;
+    data.category_id = null;
+  } else {
+    if (body.categoryId !== undefined) data.category_id = body.categoryId || null;
+    if (!isUpdate) data.school_id = null; // admin-created quizzes stay in the global catalog
+  }
   mapBilingualField(body, data, 'title', 'title');
   mapBilingualField(body, data, 'description', 'description');
   if (body.coverImageUrl !== undefined) data.cover_image_url = body.coverImageUrl;
@@ -40,7 +61,8 @@ async function transformQuiz(body, { req, existing, isUpdate } = {}) {
 
   // Only re-check the cap when the quiz is landing in this category for the
   // first time (create), or is being MOVED into a different category on
-  // update — leaving it in place should never trip the limit.
+  // update — leaving it in place should never trip the limit. Never applies
+  // to a school's own private games (category_id is always null for those).
   if (data.category_id && (!isUpdate || data.category_id !== existing?.category_id)) {
     await assertCategoryHasRoom(data.category_id, isUpdate ? { excludeQuizId: existing.id } : {});
   }
@@ -49,11 +71,30 @@ async function transformQuiz(body, { req, existing, isUpdate } = {}) {
 
 const crud = makeCrudController(repo, { transformInput: transformQuiz, notFoundMessage: 'Quiz not found' });
 
+// A school sees only its own private games; a plain admin sees the global
+// Make Down Games catalog (school_id IS NULL) — the same set it always saw,
+// since every pre-existing quiz row has school_id NULL after the migration.
+const list = asyncHandler(async (req, res) => {
+  const { page, pageSize, search } = req.query;
+  const schoolId = req.school ? req.school.id : null;
+  const result = await repo.listScoped({ page, pageSize, search, schoolId });
+  ok(res, result);
+});
+
 const getOneWithQuestions = asyncHandler(async (req, res) => {
   const quiz = await repo.findById(req.params.id);
   if (!quiz) throw ApiError.notFound('Quiz not found');
+  assertOwned(quiz, req);
   const questions = await repo.listQuestions(req.params.id);
   ok(res, { ...quiz, questions });
+});
+
+const deleteOne = asyncHandler(async (req, res) => {
+  const existing = await repo.findById(req.params.id);
+  if (!existing) throw ApiError.notFound('Quiz not found');
+  assertOwned(existing, req);
+  await repo.remove(req.params.id);
+  ok(res, null, 'Deleted');
 });
 
 // Answer options are optional in the sense that an admin only has to fill
@@ -92,6 +133,7 @@ function requireValidCorrectIndex(index, optionsLength) {
 const addQuestion = asyncHandler(async (req, res) => {
   const quiz = await repo.findById(req.params.id);
   if (!quiz) throw ApiError.notFound('Quiz not found');
+  assertOwned(quiz, req);
   const b = req.body;
   if (!b.questionTextEn || !b.questionTextAr) {
     throw ApiError.badRequest('Both English and Arabic question text are required');
@@ -121,6 +163,10 @@ const addQuestion = asyncHandler(async (req, res) => {
 const updateQuestion = asyncHandler(async (req, res) => {
   const existing = await repo.findQuestionById(req.params.questionId);
   if (!existing) throw ApiError.notFound('Question not found');
+  if (req.school) {
+    const parentQuiz = await repo.findById(existing.quiz_id);
+    assertOwned(parentQuiz || { school_id: null }, req);
+  }
   const b = req.body;
   const data = {};
   if (b.questionTextEn !== undefined) data.question_text_en = b.questionTextEn;
@@ -151,8 +197,12 @@ const updateQuestion = asyncHandler(async (req, res) => {
 const deleteQuestion = asyncHandler(async (req, res) => {
   const existing = await repo.findQuestionById(req.params.questionId);
   if (!existing) throw ApiError.notFound('Question not found');
+  if (req.school) {
+    const parentQuiz = await repo.findById(existing.quiz_id);
+    assertOwned(parentQuiz || { school_id: null }, req);
+  }
   await repo.deleteQuestion(req.params.questionId);
   ok(res, null, 'Deleted');
 });
 
-module.exports = { ...crud, getOneWithQuestions, addQuestion, updateQuestion, deleteQuestion };
+module.exports = { ...crud, list, deleteOne, getOneWithQuestions, addQuestion, updateQuestion, deleteQuestion };

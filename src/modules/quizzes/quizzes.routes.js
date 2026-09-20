@@ -1,6 +1,10 @@
 const router = require('express').Router();
 const controller = require('./quizzes.controller');
-const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
+// A school token gets its own private games (see quizzes.controller.js —
+// every handler below scopes to req.school.id when present), same pattern
+// as game-sessions.routes.js. Plain requireAdminAuth stays elsewhere for
+// routes that must never accept a school token.
+const requireAdminOrSchoolAuth = require('../../middlewares/adminOrSchoolAuth.middleware');
 
 /**
  * @swagger
@@ -75,7 +79,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *       - { in: path, name: questionId, required: true, schema: { type: integer } }
  *     responses: { 200: { description: Deleted } }
  */
-router.use(requireAdminAuth);
+router.use(requireAdminOrSchoolAuth);
 router.get('/', controller.list);
 router.post('/', controller.createOne);
 router.get('/:id', controller.getOneWithQuestions);
