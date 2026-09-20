@@ -197,8 +197,10 @@ async function findParticipant(sessionId, userId) {
 
 async function findParticipantById(participantId) {
   const [rows] = await pool.query(
-    `SELECT gp.*, u.full_name, u.avatar_url FROM game_participants gp
-     LEFT JOIN users u ON u.id = gp.user_id WHERE gp.id = ? LIMIT 1`,
+    `SELECT gp.*, u.full_name, u.avatar_url, gt.name AS team_name FROM game_participants gp
+     LEFT JOIN users u ON u.id = gp.user_id
+     LEFT JOIN game_teams gt ON gt.id = gp.team_id
+     WHERE gp.id = ? LIMIT 1`,
     [participantId]
   );
   if (!rows[0]) return null;
@@ -563,9 +565,61 @@ async function scanQuestion(sessionId, userId, token) {
   return { question: sanitizeQuestion(question), timeLimitSeconds: timeLimit };
 }
 
-// Resolves the current tile: writes the answer (or a null/skip), scores it,
-// and advances the turn. Used by both the real answer submission and the
-// server-side timeout / skip lifeline.
+// Like advanceTurn, but keeps the same tile/question active and just hands
+// the turn to the next participant instead of closing the tile out. Used in
+// team mode after the first team answers a tile — the same question is
+// re-served to the other team rather than the tile ending there.
+async function advanceSubTurn(sessionId, question) {
+  const session = await findSessionRaw(sessionId);
+  const turnOrder = parseJsonColumn(session.turn_order_json, []);
+  const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
+  if (!turnOrder.length) return { awaitingScan: false, timeLimitSeconds: timeLimit };
+
+  const [activeRows] = await pool.query(
+    'SELECT id FROM game_participants WHERE session_id = ? AND left_at IS NULL',
+    [sessionId]
+  );
+  const activeIds = new Set(activeRows.map((r) => r.id));
+
+  let nextIndex = session.current_turn_index;
+  for (let step = 1; step <= turnOrder.length; step += 1) {
+    const candidate = (session.current_turn_index + step) % turnOrder.length;
+    if (activeIds.has(turnOrder[candidate])) {
+      nextIndex = candidate;
+      break;
+    }
+  }
+
+  if (question.question_type === 'qr') {
+    const token = randomToken();
+    await pool.query(
+      `UPDATE game_sessions SET current_turn_index = ?, current_scan_token = ?, current_scan_scanned_at = NULL,
+       turn_started_at = NULL, turn_ends_at = NULL WHERE id = ?`,
+      [nextIndex, token, sessionId]
+    );
+    return { awaitingScan: true, scanToken: token };
+  }
+
+  await pool.query(
+    `UPDATE game_sessions SET current_turn_index = ?, turn_started_at = NOW(),
+     turn_ends_at = DATE_ADD(NOW(), INTERVAL ? SECOND), current_scan_token = NULL, current_scan_scanned_at = NULL
+     WHERE id = ?`,
+    [nextIndex, timeLimit, sessionId]
+  );
+  return { awaitingScan: false, timeLimitSeconds: timeLimit };
+}
+
+// Resolves the current tile: writes the answer (or a null/skip/timeout),
+// scores it, and advances the turn. Used by the real answer submission, the
+// skip lifeline, and the server-side timeout.
+//
+// Team mode plays every tile out with BOTH teams: whichever team answers a
+// tile's question first, right or wrong, the same question is immediately
+// re-served to the other team (see advanceSubTurn) instead of the tile
+// ending there. Only once both teams have had a turn at it is the tile
+// settled — whichever team answered correctly first wins it outright (if
+// the first team was right, a correct second answer doesn't change the
+// outcome); if neither team got it right, nobody scores ("Everyone Lost").
 async function resolveTurn(sessionId, { participantId, selectedOptionIndex = null, timeTakenMs = null }) {
   const session = await findSessionRaw(sessionId);
   if (!session || !session.current_question_id) return null;
@@ -573,23 +627,71 @@ async function resolveTurn(sessionId, { participantId, selectedOptionIndex = nul
 
   const isCorrect = selectedOptionIndex !== null && Number(selectedOptionIndex) === question.correct_option_index;
 
+  let priorAnswer = null;
+  if (session.mode === 'team') {
+    const [priorRows] = await pool.query(
+      `SELECT ga.* FROM game_answers ga WHERE ga.session_id = ? AND ga.question_id = ? ORDER BY ga.id ASC LIMIT 1`,
+      [sessionId, question.id]
+    );
+    priorAnswer = priorRows[0] || null;
+  }
+
   await pool.query(
     `INSERT INTO game_answers (session_id, participant_id, question_id, selected_option_index, is_correct, time_taken_ms)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [sessionId, participantId, question.id, selectedOptionIndex, isCorrect ? 1 : 0, timeTakenMs]
   );
 
-  if (isCorrect) {
-    const participant = await findParticipantById(participantId);
-    await pool.query('UPDATE game_participants SET score = score + ? WHERE id = ?', [question.points, participantId]);
-    if (participant.team_id) {
-      await pool.query('UPDATE game_teams SET score = score + ? WHERE id = ?', [question.points, participant.team_id]);
+  const participant = await findParticipantById(participantId);
+
+  async function awardPoints(pid, pRow) {
+    await pool.query('UPDATE game_participants SET score = score + ? WHERE id = ?', [question.points, pid]);
+    if (pRow?.team_id) {
+      await pool.query('UPDATE game_teams SET score = score + ? WHERE id = ?', [question.points, pRow.team_id]);
     }
   }
 
-  await advanceTurn(sessionId);
+  if (session.mode === 'team') {
+    if (!priorAnswer) {
+      // First team to see this question — score it if correct, then hand
+      // the very same question to the other team instead of closing it out.
+      if (isCorrect) await awardPoints(participantId, participant);
+      const advanceInfo = await advanceSubTurn(sessionId, question);
+      return {
+        question, isCorrect, correctOptionIndex: question.correct_option_index, participantId,
+        roundComplete: false, ...advanceInfo,
+      };
+    }
 
-  return { question, isCorrect, correctOptionIndex: question.correct_option_index, participantId };
+    // Second (final) team — the tile is settled either way now.
+    let winnerParticipantId = null;
+    if (priorAnswer.is_correct) {
+      winnerParticipantId = priorAnswer.participant_id;
+    } else if (isCorrect) {
+      winnerParticipantId = participantId;
+      await awardPoints(participantId, participant);
+    }
+
+    await advanceTurn(sessionId);
+
+    let winnerName = null;
+    if (winnerParticipantId) {
+      const winner = winnerParticipantId === participantId ? participant : await findParticipantById(winnerParticipantId);
+      winnerName = winner?.team_name || winner?.full_name || null;
+    }
+
+    return {
+      question, isCorrect, correctOptionIndex: question.correct_option_index, participantId,
+      roundComplete: true, winnerParticipantId, winnerName, points: winnerParticipantId ? question.points : 0,
+    };
+  }
+
+  // Solo / random: unchanged single-answer-then-advance behavior.
+  if (isCorrect) await awardPoints(participantId, participant);
+  await advanceTurn(sessionId);
+  return {
+    question, isCorrect, correctOptionIndex: question.correct_option_index, participantId, roundComplete: true,
+  };
 }
 
 async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, timeTakenMs) {
