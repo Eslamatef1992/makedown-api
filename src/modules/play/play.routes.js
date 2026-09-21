@@ -30,8 +30,28 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *   post:
  *     tags: [Play]
  *     summary: Join a game by its join code
+ *     description: >
+ *       Consumes the joining player's free game / package credit — unless
+ *       the session is school-hosted (schools/game-sessions.controller.js
+ *       "Create Game"), in which case joining is free for the player; the
+ *       school hosts the event, so a student shouldn't burn their own
+ *       credit to attend it. A school's own join code (from its "My Games")
+ *       works the same way here as any other game's — there's no separate
+ *       endpoint for it.
  *     security: [{ bearerAuth: [] }]
- *     responses: { 200: { description: Joined } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code]
+ *             properties:
+ *               code: { type: string, description: "The session's join code" }
+ *     responses:
+ *       200: { description: Joined }
+ *       402: { description: No game credits remaining (not applicable to school-hosted sessions) }
+ *       404: { description: Invalid or expired code }
  * /play/sessions/public:
  *   get:
  *     tags: [Play]
