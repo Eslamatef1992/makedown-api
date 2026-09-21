@@ -99,6 +99,11 @@ async function list({ page = 1, pageSize = 20, filters = {} } = {}) {
   if (filters.mode) { where.push('gs.mode = ?'); params.push(filters.mode); }
   if (filters.status) { where.push('gs.status = ?'); params.push(filters.status); }
   if (filters.school_id) { where.push('gs.school_id = ?'); params.push(filters.school_id); }
+  // hasSchool: '1' -> only school-hosted games ("School Games" oversight
+  // page), '0' -> only player-created games. Distinct from school_id above,
+  // which scopes to one specific school.
+  if (filters.hasSchool === '1') where.push('gs.school_id IS NOT NULL');
+  if (filters.hasSchool === '0') where.push('gs.school_id IS NULL');
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const limit = Math.min(Number(pageSize) || 20, 100);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;

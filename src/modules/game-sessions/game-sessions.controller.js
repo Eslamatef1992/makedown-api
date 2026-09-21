@@ -5,11 +5,11 @@ const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
 
 const list = asyncHandler(async (req, res) => {
-  const { page, pageSize, mode, status, school_id } = req.query;
+  const { page, pageSize, mode, status, school_id, has_school: hasSchool } = req.query;
   // A school only ever sees its own games — its token pins the filter
   // regardless of what (if anything) it asked for.
   const scopedSchoolId = req.school ? req.school.id : school_id;
-  const result = await repo.list({ page, pageSize, filters: { mode, status, school_id: scopedSchoolId } });
+  const result = await repo.list({ page, pageSize, filters: { mode, status, school_id: scopedSchoolId, hasSchool } });
   ok(res, result);
 });
 
