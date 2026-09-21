@@ -11,6 +11,7 @@ const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
  *   get:
  *     tags: [Game Categories]
  *     summary: List game categories
+ *     description: Each row also includes quiz_count — the number of global-catalog games (school_id IS NULL) tagged to that category — used by the admin table's "Has Games" column.
  *     security: [{ bearerAuth: [] }]
  *     responses: { 200: { description: List } }
  *   post:
