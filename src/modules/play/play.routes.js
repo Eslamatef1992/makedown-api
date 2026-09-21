@@ -45,9 +45,9 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         application/json:
  *           schema:
  *             type: object
- *             required: [code]
+ *             required: [joinCode]
  *             properties:
- *               code: { type: string, description: "The session's join code" }
+ *               joinCode: { type: string, description: "The session's join code" }
  *     responses:
  *       200: { description: Joined }
  *       402: { description: No game credits remaining (not applicable to school-hosted sessions) }
