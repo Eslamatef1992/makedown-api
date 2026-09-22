@@ -73,7 +73,7 @@ async function listPublicForSchool(schoolId) {
     [ids]
   );
   const [catRows] = await pool.query(
-    `SELECT gsc.session_id, q.title_en, q.title_ar
+    `SELECT gsc.session_id, q.title_en, q.title_ar, q.cover_image_url
      FROM game_session_categories gsc JOIN quizzes q ON q.id = gsc.quiz_id
      WHERE gsc.session_id IN (?) ORDER BY gsc.sort_order ASC`,
     [ids]
@@ -88,7 +88,9 @@ async function listPublicForSchool(schoolId) {
     scheduledDate: r.scheduled_date,
     scheduledTime: r.scheduled_time,
     teams: teamRows.filter((t) => t.session_id === r.id).map((t) => ({ name: t.name, capacity: t.capacity })),
-    categories: catRows.filter((c) => c.session_id === r.id).map((c) => ({ titleEn: c.title_en, titleAr: c.title_ar })),
+    categories: catRows
+      .filter((c) => c.session_id === r.id)
+      .map((c) => ({ titleEn: c.title_en, titleAr: c.title_ar, coverImageUrl: c.cover_image_url })),
   }));
 }
 
