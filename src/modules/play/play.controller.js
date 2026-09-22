@@ -162,7 +162,13 @@ const listPlayableQuizzes = asyncHandler(async (req, res) => {
   // only offer games the admin marked as supporting that mode (or 'both').
   const mode = ['solo', 'team'].includes(req.query.mode) ? req.query.mode : null;
   const params = [];
-  let where = 'q.is_active = 1';
+  // A school's own private games (school_id set, created from the school
+  // admin panel's "My Games"/Create Game flow) are only ever playable
+  // through that school's Education page + join code — they must never
+  // show up in the general public Play category picker. Without this, an
+  // uncategorized school quiz fell into the picker's "Other" bucket
+  // alongside the real global catalog.
+  let where = 'q.is_active = 1 AND q.school_id IS NULL';
   if (req.query.category_id) {
     where += ' AND q.category_id = ?';
     params.push(req.query.category_id);
