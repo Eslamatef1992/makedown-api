@@ -61,14 +61,43 @@ const requireAdminOrSchoolAuth = require('../../middlewares/adminOrSchoolAuth.mi
  * /admin/game-sessions/{id}:
  *   get:
  *     tags: [Games History]
- *     summary: Get a session with its participants and scores
+ *     summary: Get a session with its participants, scores, board, quizIds and teams
+ *     description: quizIds and teams are included alongside the read-only view fields so the same payload also pre-fills the "edit" (pencil) form.
  *     security: [{ bearerAuth: [] }]
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     responses: { 200: { description: Session detail } }
+ *   patch:
+ *     tags: [Games History]
+ *     summary: "Edit Game — the pencil action next to the eye/view action on Games history, editing the same fields the create flow collects"
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               titleAr: { type: string, description: "Required together with title for a school token" }
+ *               quizIds: { type: array, items: { type: integer }, description: "Replaces the session's whole board when provided" }
+ *               maxPlayers: { type: integer }
+ *               audience: { type: string, enum: [girls, boys, mixed] }
+ *               scheduledDate: { type: string, format: date }
+ *               scheduledTime: { type: string, example: "14:30" }
+ *               team1Name: { type: string, description: "mode = team only" }
+ *               team1Capacity: { type: integer, description: "mode = team only" }
+ *               team2Name: { type: string, description: "mode = team only" }
+ *               team2Capacity: { type: integer, description: "mode = team only" }
+ *     responses:
+ *       200: { description: Updated game session }
+ *       400: { description: One or more selected games are not the caller's own (school token) }
+ *       404: { description: Not found, or not the caller's own session (school token) }
  */
 router.use(requireAdminOrSchoolAuth);
 router.get('/', controller.list);
 router.post('/', controller.create);
 router.get('/:id', controller.getOne);
+router.patch('/:id', controller.updateOne);
 
 module.exports = router;

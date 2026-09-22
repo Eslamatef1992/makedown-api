@@ -17,11 +17,16 @@ const getOne = asyncHandler(async (req, res) => {
   const session = await repo.findById(req.params.id);
   if (!session) throw ApiError.notFound('Game session not found');
   if (req.school && Number(session.school_id) !== Number(req.school.id)) throw ApiError.notFound('Game session not found');
-  const [participants, board] = await Promise.all([
+  // quizIds/teams are only needed to pre-fill the "edit" (pencil) form —
+  // cheap enough to always include alongside the read-only view's
+  // participants/board rather than a second round trip.
+  const [participants, board, quizIds, teams] = await Promise.all([
     repo.listParticipants(req.params.id),
     repo.getBoard(req.params.id),
+    repo.getQuizIds(req.params.id),
+    repo.getTeams(req.params.id),
   ]);
-  ok(res, { ...session, participants, board });
+  ok(res, { ...session, participants, board, quizIds, teams });
 });
 
 // Super admin OR a logged-in school "create game": pick solo/team mode,
@@ -97,4 +102,53 @@ const create = asyncHandler(async (req, res) => {
   created(res, session, 'Game created');
 });
 
-module.exports = { list, getOne, create };
+// Edits the same fields the create flow collects — the "pencil" action next
+// to the read-only "eye" view on Games history. A school can only edit its
+// own sessions (same ownership check as getOne); the bilingual-name
+// requirement and the owned-quiz backstop mirror create() exactly.
+const updateOne = asyncHandler(async (req, res) => {
+  const existing = await repo.findById(req.params.id);
+  if (!existing) throw ApiError.notFound('Game session not found');
+  if (req.school && Number(existing.school_id) !== Number(req.school.id)) throw ApiError.notFound('Game session not found');
+
+  const {
+    title, titleAr, audience, scheduledDate, scheduledTime, maxPlayers,
+    quizIds, team1Name, team1Capacity, team2Name, team2Capacity,
+  } = req.body;
+
+  if (audience !== undefined && audience !== null && audience !== '' && !['girls', 'boys', 'mixed'].includes(audience)) {
+    throw ApiError.badRequest('audience must be girls, boys, or mixed');
+  }
+  if (req.school && (!title || !title.trim() || !titleAr || !titleAr.trim())) {
+    throw ApiError.badRequest('Enter the game name in both English and Arabic');
+  }
+  if (quizIds !== undefined) {
+    if (!Array.isArray(quizIds) || !quizIds.length) throw ApiError.badRequest('Select at least one category');
+    if (req.school) {
+      const ids = quizIds.map(Number);
+      const owned = await Promise.all(ids.map((qid) => quizzesRepo.findById(qid)));
+      const notOwned = owned.some((q) => !q || Number(q.school_id) !== Number(req.school.id));
+      if (notOwned) throw ApiError.badRequest('One or more selected games are not yours');
+    }
+  }
+  if (existing.mode === 'team' && (!team1Name || !team1Name.trim() || !team2Name || !team2Name.trim())) {
+    throw ApiError.badRequest('Name both teams');
+  }
+
+  const session = await repo.updateSchoolGame(req.params.id, {
+    title,
+    titleAr,
+    audience,
+    scheduledDate,
+    scheduledTime,
+    maxPlayers,
+    quizIds: quizIds !== undefined ? quizIds.map(Number) : undefined,
+    team1Name,
+    team1Capacity,
+    team2Name,
+    team2Capacity,
+  });
+  ok(res, session, 'Game updated');
+});
+
+module.exports = { list, getOne, create, updateOne };

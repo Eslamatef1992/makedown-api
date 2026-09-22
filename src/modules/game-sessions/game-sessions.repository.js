@@ -55,6 +55,66 @@ async function createSchoolGame({
   return findById(sessionId);
 }
 
+// Powers the "edit" (pencil) flow on the Games history page — the create
+// form pre-filled with what's already on this session, so quizIds/teams
+// are exposed the same shape the create payload expects.
+async function getQuizIds(sessionId) {
+  const [rows] = await pool.query(
+    'SELECT quiz_id FROM game_session_categories WHERE session_id = ? ORDER BY sort_order ASC',
+    [sessionId]
+  );
+  return rows.map((r) => r.quiz_id);
+}
+
+async function getTeams(sessionId) {
+  const [rows] = await pool.query(
+    'SELECT id, name, capacity FROM game_teams WHERE session_id = ? ORDER BY id ASC',
+    [sessionId]
+  );
+  return rows;
+}
+
+// Edits the same fields the create flow collects. quizIds (when provided)
+// fully replaces the session's board — simplest correct way to add/remove
+// categories without diffing sort orders. Team names/capacities update the
+// two existing game_teams rows in place (by creation order) rather than
+// recreating them, so team scores already on the board aren't reset.
+async function updateSchoolGame(id, {
+  title, titleAr, audience, scheduledDate, scheduledTime, maxPlayers,
+  quizIds, team1Name, team1Capacity, team2Name, team2Capacity,
+}) {
+  await pool.query(
+    `UPDATE game_sessions
+       SET title = ?, title_ar = ?, audience = ?, scheduled_date = ?, scheduled_time = ?, max_players = ?
+     WHERE id = ?`,
+    [title || null, titleAr || null, audience || null, scheduledDate || null, scheduledTime || null, maxPlayers || null, id]
+  );
+
+  if (Array.isArray(quizIds)) {
+    await pool.query('DELETE FROM game_session_categories WHERE session_id = ?', [id]);
+    if (quizIds.length) {
+      const values = quizIds.map((quizId, idx) => [id, quizId, idx]);
+      await pool.query('INSERT INTO game_session_categories (session_id, quiz_id, sort_order) VALUES ?', [values]);
+    }
+  }
+
+  if (team1Name !== undefined || team2Name !== undefined) {
+    const [teamRows] = await pool.query('SELECT id FROM game_teams WHERE session_id = ? ORDER BY id ASC', [id]);
+    if (teamRows[0] && team1Name !== undefined) {
+      await pool.query('UPDATE game_teams SET name = ?, capacity = ? WHERE id = ?', [
+        team1Name || 'Team A', team1Capacity || null, teamRows[0].id,
+      ]);
+    }
+    if (teamRows[1] && team2Name !== undefined) {
+      await pool.query('UPDATE game_teams SET name = ?, capacity = ? WHERE id = ?', [
+        team2Name || 'Team B', team2Capacity || null, teamRows[1].id,
+      ]);
+    }
+  }
+
+  return findById(id);
+}
+
 // Public — the website's "<School> Games" page. No join code in the
 // payload on purpose (see schools.controller.js#publicGames).
 async function listPublicForSchool(schoolId) {
@@ -151,4 +211,7 @@ async function listParticipants(sessionId) {
   return rows;
 }
 
-module.exports = { list, findById, listParticipants, createSchoolGame, listPublicForSchool, getBoard: playRepo.getBoard };
+module.exports = {
+  list, findById, listParticipants, createSchoolGame, updateSchoolGame,
+  getQuizIds, getTeams, listPublicForSchool, getBoard: playRepo.getBoard,
+};
