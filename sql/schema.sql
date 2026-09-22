@@ -340,6 +340,7 @@ CREATE TABLE IF NOT EXISTS game_sessions (
   id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   quiz_id                 BIGINT UNSIGNED NULL,
   title                   VARCHAR(150) NULL,
+  title_ar                VARCHAR(150) NULL,
   host_user_id            BIGINT UNSIGNED NULL,
   school_id               INT UNSIGNED NULL,
   mode                    ENUM('solo','team','random') NOT NULL DEFAULT 'solo',

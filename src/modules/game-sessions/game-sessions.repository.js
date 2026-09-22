@@ -24,17 +24,17 @@ async function uniqueJoinCode() {
 // students join the resulting session from the website Play flow with their
 // own accounts, same as any player-created game.
 async function createSchoolGame({
-  mode, quizIds = [], title, schoolId, maxPlayers, isPublic = false,
+  mode, quizIds = [], title, titleAr, schoolId, maxPlayers, isPublic = false,
   audience, scheduledDate, scheduledTime,
   team1Name, team1Capacity, team2Name, team2Capacity,
 }) {
   const joinCode = await uniqueJoinCode();
   const [result] = await pool.query(
     `INSERT INTO game_sessions
-       (quiz_id, title, host_user_id, school_id, mode, audience, is_public, max_players, scheduled_date, scheduled_time, join_code, status)
-     VALUES (NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
+       (quiz_id, title, title_ar, host_user_id, school_id, mode, audience, is_public, max_players, scheduled_date, scheduled_time, join_code, status)
+     VALUES (NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
     [
-      title || null, schoolId || null, mode, audience || null, isPublic ? 1 : 0, maxPlayers || null,
+      title || null, titleAr || null, schoolId || null, mode, audience || null, isPublic ? 1 : 0, maxPlayers || null,
       scheduledDate || null, scheduledTime || null, joinCode,
     ]
   );
@@ -59,7 +59,7 @@ async function createSchoolGame({
 // payload on purpose (see schools.controller.js#publicGames).
 async function listPublicForSchool(schoolId) {
   const [rows] = await pool.query(
-    `SELECT id, title, mode, audience, status, scheduled_date, scheduled_time
+    `SELECT id, title, title_ar, mode, audience, status, scheduled_date, scheduled_time
      FROM game_sessions
      WHERE school_id = ? AND status IN ('waiting', 'active')
      ORDER BY scheduled_date ASC, scheduled_time ASC, created_at DESC`,
@@ -82,6 +82,7 @@ async function listPublicForSchool(schoolId) {
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
+    titleAr: r.title_ar,
     mode: r.mode,
     audience: r.audience,
     status: r.status,

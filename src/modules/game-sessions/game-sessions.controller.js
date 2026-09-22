@@ -32,15 +32,26 @@ const getOne = asyncHandler(async (req, res) => {
 // flow, same as any other game session.
 const create = asyncHandler(async (req, res) => {
   const {
-    mode, quizIds, title, maxPlayers, isPublic,
+    mode, quizIds, title, titleAr, maxPlayers, isPublic,
     audience, scheduledDate, scheduledTime,
     team1Name, team1Capacity, team2Name, team2Capacity,
   } = req.body;
   const schoolId = req.school ? req.school.id : req.body.schoolId;
   if (!['solo', 'team', 'random'].includes(mode)) throw ApiError.badRequest('mode must be solo, team, or random');
+  // A school's own "Create Game" flow never offers solo any more — the
+  // admin panel UI doesn't show the picker at all for a school, this is
+  // just the server-side backstop for it (same reasoning as the
+  // owned-quiz check below).
+  if (req.school && mode !== 'team') throw ApiError.badRequest('Schools can only create team games');
   if (!Array.isArray(quizIds) || !quizIds.length) throw ApiError.badRequest('Select at least one category');
   if (audience !== undefined && audience !== null && !['girls', 'boys', 'mixed'].includes(audience)) {
     throw ApiError.badRequest('audience must be girls, boys, or mixed');
+  }
+  // A school's game name is bilingual and required, like every other
+  // user-facing name in the app — a non-school (super admin) session keeps
+  // the optional single-language title it always had.
+  if (req.school && (!title || !title.trim() || !titleAr || !titleAr.trim())) {
+    throw ApiError.badRequest('Enter the game name in both English and Arabic');
   }
 
   // A school can only bundle its own private games onto its board — never
@@ -58,6 +69,7 @@ const create = asyncHandler(async (req, res) => {
     mode,
     quizIds: quizIds.map(Number),
     title,
+    titleAr,
     schoolId,
     maxPlayers,
     isPublic,
