@@ -276,7 +276,6 @@ CREATE TABLE IF NOT EXISTS schools (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name_en       VARCHAR(200) NOT NULL,
   name_ar       VARCHAR(200) NOT NULL DEFAULT '',
-  code          VARCHAR(30) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NULL,
   logo_url      VARCHAR(500) NULL,
   address       VARCHAR(255) NULL,
