@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const requireAdminAuth = require('../../middlewares/adminAuth.middleware');
+const requireAdminOrSchoolAuth = require('../../middlewares/adminOrSchoolAuth.middleware');
 const controller = require('./uploads.controller');
 
 /**
@@ -23,6 +23,6 @@ const controller = require('./uploads.controller');
  *       200: { description: Uploaded file URL }
  *       400: { description: Invalid file type or file too large }
  */
-router.post('/image', requireAdminAuth, controller.uploadImage);
+router.post('/image', requireAdminOrSchoolAuth, controller.uploadImage);
 
 module.exports = router;
