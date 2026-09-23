@@ -343,7 +343,11 @@ const pickTile = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
   let scanQrDataUrl = null;
   let scanUrl = null;
-  if (result.awaitingScan && result.scanToken) {
+  // Only a real QR-gated question needs an actual scannable code — an audio
+  // question is also "awaitingScan" (see GATED_QUESTION_TYPES) but reveals
+  // itself via revealQuestion (the host tapping Next), not a second-device
+  // scan, so there's nothing to generate a code for.
+  if (result.awaitingScan && result.scanToken && result.question.question_type === 'qr') {
     scanUrl = `${env.frontendUrl}/play/scan/${req.params.id}/${result.scanToken}`;
     try {
       const QRCode = require('qrcode');
@@ -382,6 +386,28 @@ const scanQuestion = asyncHandler(async (req, res) => {
   ok(res, result);
 });
 
+// Audio questions: the host taps this once the clip has finished playing —
+// same effect as scanQuestion (reveals the question/options and starts the
+// timer) but authorized as a normal turn action instead of a scanned token,
+// since there's no second device involved (see repo.revealQuestion).
+const revealQuestion = asyncHandler(async (req, res) => {
+  await requireParticipant(req.params.id, req.user.id);
+  let result;
+  try {
+    result = await repo.revealQuestion(req.params.id, req.user.id);
+  } catch (err) {
+    throw mapError(err);
+  }
+  const io = req.app.get('io');
+  io.to(`game:${req.params.id}`).emit('game:question_revealed', {
+    sessionId: Number(req.params.id),
+    question: result.question,
+    timeLimitSeconds: result.timeLimitSeconds,
+  });
+  scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
+  ok(res, result);
+});
+
 const submitAnswer = asyncHandler(async (req, res) => {
   await requireParticipant(req.params.id, req.user.id);
   clearSessionTimer(req.params.id);
@@ -402,6 +428,29 @@ const submitAnswer = asyncHandler(async (req, res) => {
     scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
   }
   ok(res, { isCorrect: result.isCorrect, correctOptionIndex: result.correctOptionIndex });
+});
+
+// QR-gated questions have no options to submit an index against — once the
+// host taps Next on the live game's "Who Is Answer?" step, this directly
+// settles the tile in favor of whichever participant (team) they picked, or
+// nobody if "No One Answer" was chosen. Host-only (see resolveQrAnswer).
+const qrAnswer = asyncHandler(async (req, res) => {
+  await requireParticipant(req.params.id, req.user.id);
+  clearSessionTimer(req.params.id);
+  let result;
+  try {
+    result = await repo.resolveQrAnswer(
+      req.params.id,
+      req.user.id,
+      Number(req.body.questionId),
+      req.body.winnerParticipantId ? Number(req.body.winnerParticipantId) : null
+    );
+  } catch (err) {
+    throw mapError(err);
+  }
+  const io = req.app.get('io');
+  await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  ok(res, { winnerParticipantId: result.winnerParticipantId, points: result.points });
 });
 
 // ---------------------------------------------------------------------------
@@ -533,7 +582,9 @@ module.exports = {
   matchRandom,
   pickTile,
   scanQuestion,
+  revealQuestion,
   submitAnswer,
+  qrAnswer,
   fiftyFifty,
   skip,
   phoneAFriend,

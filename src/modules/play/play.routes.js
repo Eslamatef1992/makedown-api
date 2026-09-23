@@ -94,10 +94,22 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *     summary: Confirm the QR code was scanned for a QR-gated question, starting its timer
  *     security: [{ bearerAuth: [] }]
  *     responses: { 200: { description: Question revealed } }
+ * /play/sessions/{id}/reveal:
+ *   post:
+ *     tags: [Play]
+ *     summary: Reveal an audio question after its clip finished playing, starting its timer (no scan token needed)
+ *     security: [{ bearerAuth: [] }]
+ *     responses: { 200: { description: Question revealed } }
  * /play/sessions/{id}/answer:
  *   post:
  *     tags: [Play]
  *     summary: Submit an answer for the active tile
+ *     security: [{ bearerAuth: [] }]
+ *     responses: { 200: { description: Result } }
+ * /play/sessions/{id}/qr-answer:
+ *   post:
+ *     tags: [Play]
+ *     summary: "Host-only: grade a QR-gated question — pick which team (participantId) answered correctly, or none, settling the tile"
  *     security: [{ bearerAuth: [] }]
  *     responses: { 200: { description: Result } }
  * /play/sessions/{id}/lifelines/fifty-fifty:
@@ -164,7 +176,9 @@ router.post('/sessions/:id/match-random', controller.matchRandom);
 
 router.post('/sessions/:id/pick-tile', controller.pickTile);
 router.post('/sessions/:id/scan', controller.scanQuestion);
+router.post('/sessions/:id/reveal', controller.revealQuestion);
 router.post('/sessions/:id/answer', controller.submitAnswer);
+router.post('/sessions/:id/qr-answer', controller.qrAnswer);
 
 router.post('/sessions/:id/lifelines/fifty-fifty', controller.fiftyFifty);
 router.post('/sessions/:id/lifelines/skip', controller.skip);

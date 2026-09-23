@@ -18,6 +18,16 @@ const DEFAULT_TIME_LIMIT = 20;
 // room on top of the question's own time limit.
 const TEAM_HANDOFF_GRACE_SECONDS = 15;
 
+// Question types whose timer/answer UI doesn't start the instant the tile is
+// picked — the player has to do something first (scan a QR code, or listen
+// to an audio clip in full) before the countdown and the answer options
+// appear. 'qr' is gated by a real token, scanned from a second device
+// (scanQuestion); 'audio' is gated by the same host tapping Next once the
+// clip finishes (revealQuestion) — no token/second device involved, but it
+// reuses the same current_scan_token/current_scan_scanned_at columns as a
+// generic "awaiting reveal" flag either way.
+const GATED_QUESTION_TYPES = ['qr', 'audio'];
+
 function randomJoinCode() {
   let code = '';
   for (let i = 0; i < 6; i += 1) code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
@@ -538,7 +548,7 @@ async function pickTile(sessionId, userId, questionId) {
   const question = await findQuestionRaw(questionId);
   const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
 
-  if (question.question_type === 'qr') {
+  if (GATED_QUESTION_TYPES.includes(question.question_type)) {
     const token = randomToken();
     await pool.query(
       `UPDATE game_sessions SET current_question_id = ?, current_scan_token = ?, current_scan_scanned_at = NULL,
@@ -575,6 +585,32 @@ async function scanQuestion(sessionId, userId, token) {
   return { question: sanitizeQuestion(question), timeLimitSeconds: timeLimit };
 }
 
+// Audio questions are gated the same way as QR (see GATED_QUESTION_TYPES),
+// but there's no physical code to scan — the host just taps Next once the
+// clip has finished playing, on the same device. So this is authorized like
+// any other turn action (resolveActingParticipant), not by a token — and,
+// unlike scanQuestion, it refuses anything that isn't actually 'audio' so
+// this can never be used as a way to skip a QR question's real scan step.
+async function revealQuestion(sessionId, userId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || !session.current_question_id) throw new Error('NO_ACTIVE_QUESTION');
+  if (!session.current_scan_token || session.current_scan_scanned_at) throw new Error('NO_ACTIVE_QUESTION');
+
+  const question = await findQuestionRaw(session.current_question_id);
+  if (!question || question.question_type !== 'audio') throw new Error('NO_ACTIVE_QUESTION');
+
+  const participant = await findParticipant(sessionId, userId);
+  resolveActingParticipant(session, participant, userId);
+
+  const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
+  await pool.query(
+    `UPDATE game_sessions SET current_scan_scanned_at = NOW(), turn_started_at = NOW(),
+     turn_ends_at = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?`,
+    [timeLimit, sessionId]
+  );
+  return { question: sanitizeQuestion(question), timeLimitSeconds: timeLimit };
+}
+
 // Like advanceTurn, but keeps the same tile/question active and just hands
 // the turn to the next participant instead of closing the tile out. Used in
 // team mode after the first team answers a tile — the same question is
@@ -600,7 +636,7 @@ async function advanceSubTurn(sessionId, question) {
     }
   }
 
-  if (question.question_type === 'qr') {
+  if (GATED_QUESTION_TYPES.includes(question.question_type)) {
     const token = randomToken();
     await pool.query(
       `UPDATE game_sessions SET current_turn_index = ?, current_scan_token = ?, current_scan_scanned_at = NULL,
@@ -719,10 +755,71 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
   return resolveTurn(sessionId, { participantId: activeParticipantId, selectedOptionIndex, timeTakenMs });
 }
 
+// QR-gated questions skip the multiple-choice/auto-grading path entirely —
+// the admin question form doesn't collect options for this type, so there's
+// nothing to compare a selected option against. Instead, once the question
+// is revealed (scanned) and the host taps Next, the host directly picks
+// which team's answer was correct (or "No one") from the live game's
+// "Who Is Answer?" step, and that single judgment settles the tile outright
+// — unlike resolveTurn/advanceSubTurn there is no per-team two-turn
+// handoff here, since a host judgment call doesn't need a second team's turn
+// at the same tile.
+async function resolveQrAnswer(sessionId, userId, questionId, winnerParticipantId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
+  if (!session.current_question_id || session.current_question_id !== Number(questionId)) {
+    throw new Error('QUESTION_NOT_ACTIVE');
+  }
+  if (session.host_user_id !== userId) throw new Error('NOT_HOST');
+
+  const question = await findQuestionRaw(questionId);
+  if (!question || question.question_type !== 'qr') throw new Error('QUESTION_NOT_ACTIVE');
+
+  let participant = null;
+  if (winnerParticipantId) {
+    participant = await findParticipantById(winnerParticipantId);
+    if (!participant || participant.session_id !== Number(sessionId)) throw new Error('PARTICIPANT_NOT_FOUND');
+
+    await pool.query(
+      `INSERT INTO game_answers (session_id, participant_id, question_id, selected_option_index, is_correct, time_taken_ms)
+       VALUES (?, ?, ?, NULL, 1, NULL)`,
+      [sessionId, winnerParticipantId, question.id]
+    );
+    await pool.query('UPDATE game_participants SET score = score + ? WHERE id = ?', [question.points, winnerParticipantId]);
+    if (participant.team_id) {
+      await pool.query('UPDATE game_teams SET score = score + ? WHERE id = ?', [question.points, participant.team_id]);
+    }
+  }
+  // "No one answered": nothing to insert (game_answers.participant_id is
+  // NOT NULL) and nothing to score — the tile is simply settled with no
+  // winner, same outcome as an ordinary question's "Everyone Lost".
+
+  await advanceTurn(sessionId);
+
+  return {
+    question,
+    isCorrect: Boolean(winnerParticipantId),
+    correctOptionIndex: null,
+    participantId: winnerParticipantId || null,
+    roundComplete: true,
+    winnerParticipantId: winnerParticipantId || null,
+    winnerName: participant?.team_name || participant?.full_name || null,
+    points: winnerParticipantId ? question.points : 0,
+  };
+}
+
 // Called by the server-side turn timer when nobody answered in time.
 async function expireTurn(sessionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.status !== 'active' || !session.current_question_id) return null;
+  const question = await findQuestionRaw(session.current_question_id);
+  // A QR-gated question is graded manually by the host, not auto-scored
+  // against an option index — if the host never tapped Next in time, settle
+  // the tile as "no one answered" instead of running the ordinary
+  // team-vs-team handoff, which doesn't apply here (see resolveQrAnswer).
+  if (question?.question_type === 'qr') {
+    return resolveQrAnswer(sessionId, session.host_user_id, session.current_question_id, null);
+  }
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const participantId = turnOrder[session.current_turn_index];
   if (!participantId) return null;
@@ -935,7 +1032,9 @@ module.exports = {
   leaveSession,
   pickTile,
   scanQuestion,
+  revealQuestion,
   submitAnswer,
+  resolveQrAnswer,
   expireTurn,
   useFiftyFifty,
   useSkip,
