@@ -22,12 +22,35 @@ function clearSessionTimer(sessionId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-session lock: scan/reveal/answer/qr-answer/skip all read the session's
+// current turn state and then write a decision based on it (e.g. resolveTurn
+// checking "has anyone already answered this question?" before deciding
+// whether to hand the tile to the other team or settle it). Two of these
+// requests landing back-to-back for the same session — a fast double-tap on
+// the host's shared device, a flaky connection causing the client to retry,
+// two people acting at once — could each read the state before the other's
+// write lands, and the second one would then see the first team's just-
+// inserted answer and treat itself as the *other* team's turn, settling the
+// tile immediately instead of handing it off. Serializing every turn action
+// for a given session removes that race entirely: the second request simply
+// runs after the first has fully committed, so it always sees accurate state.
+const sessionLocks = new Map(); // sessionId -> tail of the pending chain
+
+function withSessionLock(sessionId, fn) {
+  const key = String(sessionId);
+  const prior = sessionLocks.get(key) || Promise.resolve();
+  const run = prior.then(fn, fn);
+  sessionLocks.set(key, run.catch(() => {}));
+  return run;
+}
+
 function scheduleExpiry(sessionId, io, ms) {
   clearSessionTimer(sessionId);
   const handle = setTimeout(async () => {
     timers.delete(sessionId);
     try {
-      const result = await repo.expireTurn(sessionId);
+      const result = await withSessionLock(sessionId, () => repo.expireTurn(sessionId));
       if (result) {
         await broadcastTurnResult(io, sessionId, result.participantId, result);
         // Team mode: nobody answered in time, so the same question just got
@@ -372,7 +395,7 @@ const scanQuestion = asyncHandler(async (req, res) => {
   await requireParticipant(req.params.id, req.user.id);
   let result;
   try {
-    result = await repo.scanQuestion(req.params.id, req.user.id, req.body.token);
+    result = await withSessionLock(req.params.id, () => repo.scanQuestion(req.params.id, req.user.id, req.body.token));
   } catch (err) {
     throw mapError(err);
   }
@@ -394,7 +417,7 @@ const revealQuestion = asyncHandler(async (req, res) => {
   await requireParticipant(req.params.id, req.user.id);
   let result;
   try {
-    result = await repo.revealQuestion(req.params.id, req.user.id);
+    result = await withSessionLock(req.params.id, () => repo.revealQuestion(req.params.id, req.user.id));
   } catch (err) {
     throw mapError(err);
   }
@@ -413,7 +436,9 @@ const submitAnswer = asyncHandler(async (req, res) => {
   clearSessionTimer(req.params.id);
   let result;
   try {
-    result = await repo.submitAnswer(req.params.id, req.user.id, Number(req.body.questionId), req.body.selectedOptionIndex, req.body.timeTakenMs);
+    result = await withSessionLock(req.params.id, () => repo.submitAnswer(
+      req.params.id, req.user.id, Number(req.body.questionId), req.body.selectedOptionIndex, req.body.timeTakenMs
+    ));
   } catch (err) {
     throw mapError(err);
   }
@@ -439,12 +464,12 @@ const qrAnswer = asyncHandler(async (req, res) => {
   clearSessionTimer(req.params.id);
   let result;
   try {
-    result = await repo.resolveQrAnswer(
+    result = await withSessionLock(req.params.id, () => repo.resolveQrAnswer(
       req.params.id,
       req.user.id,
       Number(req.body.questionId),
       req.body.winnerParticipantId ? Number(req.body.winnerParticipantId) : null
-    );
+    ));
   } catch (err) {
     throw mapError(err);
   }
@@ -473,7 +498,7 @@ const skip = asyncHandler(async (req, res) => {
   clearSessionTimer(req.params.id);
   let result;
   try {
-    result = await repo.useSkip(req.params.id, req.user.id, Number(req.body.questionId));
+    result = await withSessionLock(req.params.id, () => repo.useSkip(req.params.id, req.user.id, Number(req.body.questionId)));
   } catch (err) {
     throw mapError(err);
   }
