@@ -138,9 +138,25 @@ const addQuestion = asyncHandler(async (req, res) => {
   if (!b.questionTextEn || !b.questionTextAr) {
     throw ApiError.badRequest('Both English and Arabic question text are required');
   }
-  requireParallelOptions(b.optionsEn, b.optionsAr);
-  const correctOptionIndex = requireValidCorrectIndex(b.correctOptionIndex, b.optionsEn.length);
   const questionType = ['text', 'image', 'qr', 'audio'].includes(b.questionType) ? b.questionType : 'text';
+  // QR-gated questions carry exactly one option: the answer title shown to
+  // the player once they scan the code (see makedown-website
+  // LiveGamePage.jsx) — never a multiple-choice set — so there's no
+  // correct-answer picker for it; correct_option_index is always 0.
+  let optionsEn = [];
+  let optionsAr = [];
+  let correctOptionIndex = 0;
+  if (questionType === 'qr') {
+    requireParallelOptions(b.optionsEn, b.optionsAr);
+    if (b.optionsEn.length !== 1) throw ApiError.badRequest('A QR-gated question needs exactly one answer title');
+    optionsEn = b.optionsEn;
+    optionsAr = b.optionsAr;
+  } else {
+    requireParallelOptions(b.optionsEn, b.optionsAr);
+    correctOptionIndex = requireValidCorrectIndex(b.correctOptionIndex, b.optionsEn.length);
+    optionsEn = b.optionsEn;
+    optionsAr = b.optionsAr;
+  }
   const mode = QUESTION_MODES.includes(b.mode) ? b.mode : 'both';
   const points = QUESTION_POINT_VALUES.includes(Number(b.points)) ? Number(b.points) : 200;
   const question = await repo.createQuestion(req.params.id, {
@@ -150,8 +166,8 @@ const addQuestion = asyncHandler(async (req, res) => {
     question_type: questionType,
     mode,
     media_url: b.mediaUrl || null,
-    options_json_en: JSON.stringify(b.optionsEn),
-    options_json_ar: JSON.stringify(b.optionsAr),
+    options_json_en: JSON.stringify(optionsEn),
+    options_json_ar: JSON.stringify(optionsAr),
     correct_option_index: correctOptionIndex,
     points,
     time_limit_seconds: b.timeLimitSeconds ?? 20,
@@ -175,8 +191,24 @@ const updateQuestion = asyncHandler(async (req, res) => {
   if (b.questionType !== undefined && ['text', 'image', 'qr', 'audio'].includes(b.questionType)) data.question_type = b.questionType;
   if (b.mode !== undefined && QUESTION_MODES.includes(b.mode)) data.mode = b.mode;
   if (b.mediaUrl !== undefined) data.media_url = b.mediaUrl;
+  // Same as addQuestion: a QR-gated question (switching to it, or already
+  // one) always carries exactly one option — the answer title shown to the
+  // player after they scan — never the multiple-choice set another type may
+  // have left behind, and never none either.
+  const effectiveQuestionType = data.question_type !== undefined ? data.question_type : existing.question_type;
   let effectiveOptionsLength = parseJsonColumn(existing.options_json_en, []).length;
-  if (b.optionsEn !== undefined || b.optionsAr !== undefined) {
+  if (effectiveQuestionType === 'qr') {
+    if (data.question_type === 'qr' || b.optionsEn !== undefined || b.optionsAr !== undefined) {
+      const optionsEn = b.optionsEn !== undefined ? b.optionsEn : parseJsonColumn(existing.options_json_en, []);
+      const optionsAr = b.optionsAr !== undefined ? b.optionsAr : parseJsonColumn(existing.options_json_ar, []);
+      requireParallelOptions(optionsEn, optionsAr);
+      if (optionsEn.length !== 1) throw ApiError.badRequest('A QR-gated question needs exactly one answer title');
+      data.options_json_en = JSON.stringify(optionsEn);
+      data.options_json_ar = JSON.stringify(optionsAr);
+      data.correct_option_index = 0;
+      effectiveOptionsLength = 1;
+    }
+  } else if (b.optionsEn !== undefined || b.optionsAr !== undefined) {
     const optionsEn = b.optionsEn !== undefined ? b.optionsEn : parseJsonColumn(existing.options_json_en, []);
     const optionsAr = b.optionsAr !== undefined ? b.optionsAr : parseJsonColumn(existing.options_json_ar, []);
     requireParallelOptions(optionsEn, optionsAr);
@@ -184,7 +216,7 @@ const updateQuestion = asyncHandler(async (req, res) => {
     data.options_json_ar = JSON.stringify(optionsAr);
     effectiveOptionsLength = optionsEn.length;
   }
-  if (b.correctOptionIndex !== undefined) {
+  if (effectiveQuestionType !== 'qr' && b.correctOptionIndex !== undefined) {
     data.correct_option_index = requireValidCorrectIndex(b.correctOptionIndex, effectiveOptionsLength);
   }
   if (b.points !== undefined && QUESTION_POINT_VALUES.includes(Number(b.points))) data.points = Number(b.points);
