@@ -45,6 +45,7 @@ const otpLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 10, standardHeader
  *         phone: { type: string, nullable: true }
  *         avatarUrl: { type: string, nullable: true }
  *         emailVerified: { type: boolean }
+ *         hasUsedFreeGame: { type: boolean, description: "True once the account's one-time free game has been spent (users.free_game_used_at is set) — check this before starting a session instead of waiting for a 402." }
  *         createdAt: { type: string, format: date-time }
  *     AuthSession:
  *       type: object

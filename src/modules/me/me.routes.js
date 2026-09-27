@@ -23,6 +23,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         avatarUrl: { type: string, nullable: true, example: "https://back.makedown.online/uploads/avatar-3f2c1a.jpg" }
  *         bio: { type: string, nullable: true, example: "Trivia night regular." }
  *         emailVerified: { type: boolean, example: true }
+ *         hasUsedFreeGame: { type: boolean, example: false, description: "True once the account's one-time free game has been spent." }
  *         createdAt: { type: string, format: date-time, example: "2026-01-14T09:12:00.000Z" }
  *     Address:
  *       type: object
@@ -94,11 +95,12 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         credits_remaining: { type: integer, example: 4 }
  *         purchased_at: { type: string, format: date-time }
  *         expires_at: { type: string, format: date-time, nullable: true }
- *         status: { type: string, enum: [active, expired, used], example: active }
+ *         status: { type: string, enum: [active, expired, used], example: active, description: "In practice this is always 'active' today — nothing in the codebase currently transitions a row to expired/used, even once credits_remaining reaches 0." }
  *         package_name_en: { type: string, example: "5-Game Pack" }
  *         package_name_ar: { type: string, example: "باقة 5 ألعاب" }
  *         package_credits: { type: integer, example: 5 }
  *         package_free_credits: { type: integer, example: 0 }
+ *         package_tier: { type: integer, example: 1, description: "The purchased package's tier (see the Packages schema) — 1=Standard, 2=Premium, 3=VIP by convention." }
  *     GameHistoryEntry:
  *       type: object
  *       description: One played session, camelCase (unlike addresses/orders/packages above).

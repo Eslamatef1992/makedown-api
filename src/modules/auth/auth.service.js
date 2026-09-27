@@ -25,6 +25,10 @@ function publicUser(user) {
     phone: user.phone,
     avatarUrl: user.avatar_url,
     emailVerified: Boolean(user.email_verified_at),
+    // Lets a client know upfront whether the one-time free game is gone,
+    // instead of having to start/join a session and catch the 402 (see
+    // packages.repository.js's claimFreeGame/consumeGameCredit).
+    hasUsedFreeGame: Boolean(user.free_game_used_at),
     createdAt: user.created_at,
   };
 }

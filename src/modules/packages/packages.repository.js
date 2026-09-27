@@ -5,7 +5,18 @@ const base = makeCrudRepository({ table: 'packages', searchableColumns: ['name_e
 
 async function listActive() {
   const [rows] = await pool.query('SELECT * FROM packages WHERE is_active = 1 ORDER BY sort_order ASC, id ASC');
-  return rows;
+  return attachUpgradableTo(rows);
+}
+
+// Every package in a strictly higher tier is a valid upgrade target from
+// this one — this is what lets the frontend (web + Flutter) decide "Renew
+// only" (already top tier, upgradableTo is empty) vs "Renew + Upgrade"
+// without hardcoding a tier order of its own.
+function attachUpgradableTo(packages) {
+  return packages.map((pkg) => ({
+    ...pkg,
+    upgradableTo: packages.filter((other) => other.tier > pkg.tier).map((other) => other.id),
+  }));
 }
 
 // ---- user_packages (a customer's purchased credit packages) ----
@@ -27,7 +38,7 @@ async function createUserPackage({ userId, packageId, orderId, credits }) {
 
 async function findUserPackageById(id) {
   const [rows] = await pool.query(
-    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits
+    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits, p.tier AS package_tier
      FROM user_packages up JOIN packages p ON p.id = up.package_id
      WHERE up.id = ? LIMIT 1`,
     [id]
@@ -44,7 +55,7 @@ async function findUserPackageByOrderId(orderId) {
 // full purchase history — used by the My Profile page.
 async function listUserPackages(userId) {
   const [rows] = await pool.query(
-    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits
+    `SELECT up.*, p.name_en AS package_name_en, p.name_ar AS package_name_ar, p.credits AS package_credits, p.free_credits AS package_free_credits, p.tier AS package_tier
      FROM user_packages up JOIN packages p ON p.id = up.package_id
      WHERE up.user_id = ?
      ORDER BY up.purchased_at DESC`,

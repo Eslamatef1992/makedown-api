@@ -8,7 +8,13 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *   get:
  *     tags: [Packages]
  *     summary: List active packages (public)
- *     responses: { 200: { description: List of packages } }
+ *     description: >
+ *       Each package includes `tier` (1=Standard, 2=Premium, 3=VIP by
+ *       convention — set per-package in the admin panel) and `upgradableTo`,
+ *       an array of package ids in a strictly higher tier than this one.
+ *       An empty `upgradableTo` means this is the top tier — only offer
+ *       "Renew", not "Upgrade".
+ *     responses: { 200: { description: List of packages, each with tier and upgradableTo } }
  * /packages/{id}/purchase:
  *   post:
  *     tags: [Packages]

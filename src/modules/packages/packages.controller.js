@@ -21,6 +21,7 @@ function transformInput(body, { isUpdate } = {}) {
   if (body.credits !== undefined) data.credits = body.credits;
   if (body.freeCredits !== undefined) data.free_credits = body.freeCredits;
   if (body.sortOrder !== undefined) data.sort_order = body.sortOrder;
+  if (body.tier !== undefined) data.tier = body.tier;
   if (body.isActive !== undefined) data.is_active = body.isActive ? 1 : 0;
   requireBilingual(data, ['name'], isUpdate);
   return data;

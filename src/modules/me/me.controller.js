@@ -23,6 +23,9 @@ function publicUser(user) {
     avatarUrl: user.avatar_url,
     bio: user.bio,
     emailVerified: Boolean(user.email_verified_at),
+    // Same flag as auth.service.js's publicUser — kept in sync so it's
+    // present after a profile update / avatar upload too, not just at login.
+    hasUsedFreeGame: Boolean(user.free_game_used_at),
     createdAt: user.created_at,
   };
 }
