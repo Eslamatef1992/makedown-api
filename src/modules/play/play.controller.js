@@ -391,11 +391,15 @@ const pickTile = asyncHandler(async (req, res) => {
   ok(res, { ...result, scanUrl, scanQrDataUrl });
 });
 
+// No requireParticipant/auth check here on purpose — see
+// play.repository.js's scanQuestion. This is opened by scanning a physical
+// QR code shown on the shared host screen, usually on a second device (the
+// player's own phone) that may not be logged in at all; the scan token
+// itself (embedded in the URL/QR image) is the only credential this needs.
 const scanQuestion = asyncHandler(async (req, res) => {
-  await requireParticipant(req.params.id, req.user.id);
   let result;
   try {
-    result = await withSessionLock(req.params.id, () => repo.scanQuestion(req.params.id, req.user.id, req.body.token));
+    result = await withSessionLock(req.params.id, () => repo.scanQuestion(req.params.id, req.user?.id ?? null, req.body.token));
   } catch (err) {
     throw mapError(err);
   }

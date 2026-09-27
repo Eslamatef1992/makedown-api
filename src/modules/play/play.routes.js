@@ -229,8 +229,13 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *   post:
  *     tags: [Play]
  *     summary: Confirm the QR code was scanned for a QR-gated question, starting its timer
- *     description: Called from the scan-confirmation page a second device opens — see GET-by-link flow at /play/scan/{sessionId}/{token} on the website. Can be called any number of times with the same token.
- *     security: [{ bearerAuth: [] }]
+ *     description: >
+ *       Called from the scan-confirmation page a second device opens — see
+ *       GET-by-link flow at /play/scan/{sessionId}/{token} on the website.
+ *       Can be called any number of times with the same token. Deliberately
+ *       needs NO Authorization header: the scanning device (usually the
+ *       player's own phone) may not be logged in at all, and the scan token
+ *       itself is the only credential required.
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     requestBody:
  *       required: true
@@ -349,6 +354,10 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *     responses: { 200: { description: Adjusted } }
  */
 
+// Public — no requireAuth: a QR scan may happen on a second device that
+// isn't logged in at all (see the doc comment above and play.controller.js).
+router.post('/sessions/:id/scan', controller.scanQuestion);
+
 router.use(requireAuth);
 
 router.get('/quizzes', controller.listPlayableQuizzes);
@@ -362,7 +371,6 @@ router.post('/sessions/:id/leave', controller.leaveSession);
 router.post('/sessions/:id/match-random', controller.matchRandom);
 
 router.post('/sessions/:id/pick-tile', controller.pickTile);
-router.post('/sessions/:id/scan', controller.scanQuestion);
 router.post('/sessions/:id/reveal', controller.revealQuestion);
 router.post('/sessions/:id/answer', controller.submitAnswer);
 router.post('/sessions/:id/qr-answer', controller.qrAnswer);
