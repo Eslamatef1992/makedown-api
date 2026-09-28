@@ -55,6 +55,8 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *   get:
  *     tags: [Play]
  *     summary: List quizzes (categories) that have at least one question, for board selection
+ *     description: Requires login — this was previously undocumented here (no security block), which is why an unauthenticated call returns a 401 that doesn't show up in this doc's expected responses.
+ *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: query
  *         name: category_id
@@ -63,7 +65,11 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         name: mode
  *         schema: { type: string, enum: [solo, team] }
  *         description: Only return quizzes the admin marked as supporting this mode (or 'both')
- *     responses: { 200: { description: List of quizzes } }
+ *     responses:
+ *       200: { description: List of quizzes }
+ *       401:
+ *         description: Missing or invalid access token
+ *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "Missing or invalid Authorization header" } } }
  * /play/sessions:
  *   post:
  *     tags: [Play]
