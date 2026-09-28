@@ -11,3 +11,9 @@ coverage/
 # User-uploaded files (served from /uploads, not part of the repo)
 /uploads/*
 !/uploads/.gitkeep
+
+# local only
+*.sql
+*.sql.gz
+.env.production
+/{{pkgetc}}

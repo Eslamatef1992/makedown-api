@@ -43,6 +43,7 @@ router.use('/contact-us', require('../modules/contact/contact.public.routes'));
 router.use('/', require('../modules/cms/cms.public.routes'));
 router.use('/site-settings', require('../modules/site-settings/site-settings.public.routes'));
 router.use('/orders', require('../modules/orders/orders.public.routes'));
+router.use('/cart', require('../modules/cart/cart.public.routes'));
 router.use('/payments', require('../modules/payments/payments.routes'));
 router.use('/me', require('../modules/me/me.routes'));
 router.use('/me/chat', require('../modules/chat/chat.customer.routes'));
