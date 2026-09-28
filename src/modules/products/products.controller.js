@@ -225,8 +225,8 @@ const generateVariants = asyncHandler(async (req, res) => {
 // ---- public ----
 
 const publicList = asyncHandler(async (req, res) => {
-  const { page, pageSize } = req.query;
-  const result = await repo.listActive({ page, pageSize });
+  const { page, pageSize, search, sort } = req.query;
+  const result = await repo.listActive({ page, pageSize, search, sort });
   ok(res, result);
 });
 

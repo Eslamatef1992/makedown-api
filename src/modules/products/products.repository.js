@@ -8,13 +8,32 @@ async function findBySlug(slug) {
   return rows[0] || null;
 }
 
-async function listActive({ page = 1, pageSize = 20 } = {}) {
+// ?sort= values the storefront/app can send. Sorting by price uses
+// base_price, not offer_price — offer_price is an optional discount
+// overlay (nullable), not a reliable ranking value on its own.
+const SORT_COLUMNS = {
+  newest: 'created_at DESC',
+  oldest: 'created_at ASC',
+  price_asc: 'base_price ASC',
+  price_desc: 'base_price DESC',
+  name_asc: 'name_en ASC',
+  name_desc: 'name_en DESC',
+};
+
+async function listActive({ page = 1, pageSize = 20, search = '', sort = '' } = {}) {
   const where = ['is_active = 1'];
   const params = [];
+
+  if (search) {
+    where.push('(name_en LIKE ? OR name_ar LIKE ? OR slug LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  const orderBy = SORT_COLUMNS[sort] || SORT_COLUMNS.newest;
   const limit = Math.min(Number(pageSize) || 20, 100);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
   const [rows] = await pool.query(
-    `SELECT * FROM products WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM products WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );
   const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM products WHERE ${where.join(' AND ')}`, params);
