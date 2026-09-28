@@ -36,6 +36,7 @@ router.use('/admin/site-settings', require('../modules/site-settings/site-settin
 router.use('/schools', require('../modules/schools/schools.public.routes'));
 router.use('/game-categories', require('../modules/game-categories/game-categories.public.routes'));
 router.use('/products', require('../modules/products/products.public.routes'));
+router.use('/variant-types', require('../modules/variant-types/variant-types.public.routes'));
 router.use('/coupons', require('../modules/coupons/coupons.public.routes'));
 router.use('/packages', require('../modules/packages/packages.public.routes'));
 router.use('/contact-us', require('../modules/contact/contact.public.routes'));

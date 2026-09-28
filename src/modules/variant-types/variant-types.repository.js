@@ -23,6 +23,14 @@ async function listAllWithValues() {
   return withValues;
 }
 
+// Public catalog for the app/website to fetch and cache once — active
+// types only, so a disabled variant type doesn't show up as a filter option
+// on the storefront.
+async function listActiveWithValues() {
+  const all = await listAllWithValues();
+  return all.filter((t) => t.is_active);
+}
+
 async function findValueById(id) {
   const [rows] = await pool.query('SELECT * FROM variant_type_values WHERE id = ? LIMIT 1', [id]);
   return rows[0] || null;
@@ -54,6 +62,7 @@ module.exports = {
   ...base,
   listValues,
   listAllWithValues,
+  listActiveWithValues,
   findValueById,
   createValue,
   updateValue,

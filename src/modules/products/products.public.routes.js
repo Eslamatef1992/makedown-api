@@ -17,7 +17,13 @@ const controller = require('./products.controller');
  *         description: Matches against name (en/ar) and slug
  *       - in: query
  *         name: sort
- *         schema: { type: string, enum: [newest, oldest, price_asc, price_desc, name_asc, name_desc], default: newest }
+ *         schema: { type: string, enum: [newest, new_arrival, oldest, price_asc, price_desc, name_asc, name_desc, best_seller, popular], default: newest }
+ *         description: >
+ *           new_arrival is the same as newest (no separate "new" flag exists).
+ *           best_seller and popular are both computed from paid orders —
+ *           best_seller ranks by total units sold, popular by number of
+ *           distinct orders (there's no page-view/wishlist tracking to base
+ *           "popular" on instead).
  *       - in: query
  *         name: page
  *         schema: { type: integer }
@@ -33,8 +39,21 @@ const controller = require('./products.controller');
  *     responses:
  *       200: { description: Product with active variants and images }
  *       404: { description: Not found }
+ * /products/{slug}/related:
+ *   get:
+ *     tags: [Products]
+ *     summary: Related products (public)
+ *     description: >
+ *       Products have no category/tag data, so "related" is a price-proximity
+ *       proxy — other active products within +/-25% of this product's
+ *       base_price, closest first. Not a curated or category-based match.
+ *     parameters: [{ in: path, name: slug, required: true, schema: { type: string } }]
+ *     responses:
+ *       200: { description: Up to 8 related products }
+ *       404: { description: Not found }
  */
 router.get('/', controller.publicList);
 router.get('/:slug', controller.publicGetBySlug);
+router.get('/:slug/related', controller.publicListRelated);
 
 module.exports = router;

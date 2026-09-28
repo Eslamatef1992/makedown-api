@@ -25,6 +25,11 @@ const listWithValues = asyncHandler(async (req, res) => {
   ok(res, rows);
 });
 
+const publicListWithValues = asyncHandler(async (req, res) => {
+  const rows = await repo.listActiveWithValues();
+  ok(res, rows);
+});
+
 const addValue = asyncHandler(async (req, res) => {
   const type = await repo.findById(req.params.id);
   if (!type) throw ApiError.notFound('Variant type not found');
@@ -59,4 +64,4 @@ const deleteValue = asyncHandler(async (req, res) => {
   ok(res, null, 'Deleted');
 });
 
-module.exports = { ...crud, listWithValues, addValue, updateValue, deleteValue };
+module.exports = { ...crud, listWithValues, publicListWithValues, addValue, updateValue, deleteValue };

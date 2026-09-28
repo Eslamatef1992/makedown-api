@@ -53,7 +53,8 @@ const crud = makeCrudController(repo, { transformInput, notFoundMessage: 'Produc
 const getOneWithVariants = asyncHandler(async (req, res) => {
   const product = await repo.findById(req.params.id);
   if (!product) throw ApiError.notFound('Product not found');
-  const [variants, images] = await Promise.all([repo.listVariants(req.params.id), repo.listImages(req.params.id)]);
+  const [variantsRaw, images] = await Promise.all([repo.listVariants(req.params.id), repo.listImages(req.params.id)]);
+  const variants = await repo.resolveVariantAttributes(variantsRaw);
   ok(res, { ...product, variants, images });
 });
 
@@ -233,8 +234,16 @@ const publicList = asyncHandler(async (req, res) => {
 const publicGetBySlug = asyncHandler(async (req, res) => {
   const product = await repo.findBySlug(req.params.slug);
   if (!product) throw ApiError.notFound('Product not found');
-  const [variants, images] = await Promise.all([repo.listVariants(product.id), repo.listImages(product.id)]);
-  ok(res, { ...product, variants: variants.filter((v) => v.is_active), images });
+  const [variantsRaw, images] = await Promise.all([repo.listVariants(product.id), repo.listImages(product.id)]);
+  const variants = await repo.resolveVariantAttributes(variantsRaw.filter((v) => v.is_active));
+  ok(res, { ...product, variants, images });
+});
+
+const publicListRelated = asyncHandler(async (req, res) => {
+  const product = await repo.findBySlug(req.params.slug);
+  if (!product) throw ApiError.notFound('Product not found');
+  const related = await repo.listRelated(product);
+  ok(res, related);
 });
 
 // ---- images (product gallery) ----
@@ -266,6 +275,7 @@ module.exports = {
   generateVariants,
   publicList,
   publicGetBySlug,
+  publicListRelated,
   addImage,
   deleteImage,
 };
