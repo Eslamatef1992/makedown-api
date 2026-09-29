@@ -400,7 +400,13 @@ async function createSession({
 async function joinSession(sessionId, userId) {
   const session = await findSessionRaw(sessionId);
   if (!session) throw new Error('SESSION_NOT_FOUND');
-  if (session.status !== 'waiting') throw new Error('SESSION_NOT_JOINABLE');
+  // A school-hosted session (school_id set) stays joinable after it's been
+  // started too — these run like a real live event where people keep
+  // arriving with the join code/QR after the host has already started
+  // play, not a 1:1 pickup game where "active" means fully underway. A
+  // player-created game still closes to new joins once active.
+  const lateJoinAllowed = session.status === 'active' && Boolean(session.school_id);
+  if (session.status !== 'waiting' && !lateJoinAllowed) throw new Error('SESSION_NOT_JOINABLE');
 
   const existing = await findParticipant(sessionId, userId);
   if (existing) return session;
@@ -429,9 +435,21 @@ async function joinSession(sessionId, userId) {
     teamId = counts[0].id;
   }
 
-  await pool.query('INSERT INTO game_participants (session_id, user_id, team_id) VALUES (?, ?, ?)', [
+  const [result] = await pool.query('INSERT INTO game_participants (session_id, user_id, team_id) VALUES (?, ?, ?)', [
     sessionId, userId, teamId,
   ]);
+
+  // A latecomer isn't in the turn_order_json the host's Start locked in —
+  // append them to the end of the rotation so they actually get a turn
+  // eventually, instead of silently spectating forever.
+  if (lateJoinAllowed) {
+    const turnOrder = parseJsonColumn(session.turn_order_json, []);
+    turnOrder.push(result.insertId);
+    await pool.query('UPDATE game_sessions SET turn_order_json = ? WHERE id = ?', [
+      JSON.stringify(turnOrder), sessionId,
+    ]);
+  }
+
   return session;
 }
 
