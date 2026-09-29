@@ -37,7 +37,7 @@ const getOne = asyncHandler(async (req, res) => {
 // flow, same as any other game session.
 const create = asyncHandler(async (req, res) => {
   const {
-    mode, quizIds, title, titleAr, maxPlayers, isPublic,
+    mode, quizIds, title, titleAr, cardImageUrl, maxPlayers, isPublic,
     audience, scheduledDate, scheduledTime,
     team1Name, team1Capacity, team2Name, team2Capacity,
   } = req.body;
@@ -75,6 +75,7 @@ const create = asyncHandler(async (req, res) => {
     quizIds: quizIds.map(Number),
     title,
     titleAr,
+    cardImageUrl,
     schoolId,
     maxPlayers,
     isPublic,
@@ -112,7 +113,7 @@ const updateOne = asyncHandler(async (req, res) => {
   if (req.school && Number(existing.school_id) !== Number(req.school.id)) throw ApiError.notFound('Game session not found');
 
   const {
-    title, titleAr, audience, scheduledDate, scheduledTime, maxPlayers,
+    title, titleAr, cardImageUrl, audience, scheduledDate, scheduledTime, maxPlayers,
     quizIds, team1Name, team1Capacity, team2Name, team2Capacity,
   } = req.body;
 
@@ -138,6 +139,7 @@ const updateOne = asyncHandler(async (req, res) => {
   const session = await repo.updateSchoolGame(req.params.id, {
     title,
     titleAr,
+    cardImageUrl,
     audience,
     scheduledDate,
     scheduledTime,

@@ -24,17 +24,17 @@ async function uniqueJoinCode() {
 // students join the resulting session from the website Play flow with their
 // own accounts, same as any player-created game.
 async function createSchoolGame({
-  mode, quizIds = [], title, titleAr, schoolId, maxPlayers, isPublic = false,
+  mode, quizIds = [], title, titleAr, cardImageUrl, schoolId, maxPlayers, isPublic = false,
   audience, scheduledDate, scheduledTime,
   team1Name, team1Capacity, team2Name, team2Capacity,
 }) {
   const joinCode = await uniqueJoinCode();
   const [result] = await pool.query(
     `INSERT INTO game_sessions
-       (quiz_id, title, title_ar, host_user_id, school_id, mode, audience, is_public, max_players, scheduled_date, scheduled_time, join_code, status)
-     VALUES (NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
+       (quiz_id, title, title_ar, card_image_url, host_user_id, school_id, mode, audience, is_public, max_players, scheduled_date, scheduled_time, join_code, status)
+     VALUES (NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
     [
-      title || null, titleAr || null, schoolId || null, mode, audience || null, isPublic ? 1 : 0, maxPlayers || null,
+      title || null, titleAr || null, cardImageUrl || null, schoolId || null, mode, audience || null, isPublic ? 1 : 0, maxPlayers || null,
       scheduledDate || null, scheduledTime || null, joinCode,
     ]
   );
@@ -80,14 +80,21 @@ async function getTeams(sessionId) {
 // two existing game_teams rows in place (by creation order) rather than
 // recreating them, so team scores already on the board aren't reset.
 async function updateSchoolGame(id, {
-  title, titleAr, audience, scheduledDate, scheduledTime, maxPlayers,
+  title, titleAr, cardImageUrl, audience, scheduledDate, scheduledTime, maxPlayers,
   quizIds, team1Name, team1Capacity, team2Name, team2Capacity,
 }) {
+  // cardImageUrl follows the same "only touch it if the request actually
+  // sent it" rule as quizIds below — undefined means "leave whatever's
+  // already there alone", '' (from the admin's clear button) means "remove
+  // it", so this can't accidentally wipe an existing card image on every
+  // unrelated edit (e.g. just changing the schedule).
+  const cardImageSql = cardImageUrl !== undefined ? ', card_image_url = ?' : '';
+  const cardImageParams = cardImageUrl !== undefined ? [cardImageUrl || null] : [];
   await pool.query(
     `UPDATE game_sessions
-       SET title = ?, title_ar = ?, audience = ?, scheduled_date = ?, scheduled_time = ?, max_players = ?
+       SET title = ?, title_ar = ?, audience = ?, scheduled_date = ?, scheduled_time = ?, max_players = ?${cardImageSql}
      WHERE id = ?`,
-    [title || null, titleAr || null, audience || null, scheduledDate || null, scheduledTime || null, maxPlayers || null, id]
+    [title || null, titleAr || null, audience || null, scheduledDate || null, scheduledTime || null, maxPlayers || null, ...cardImageParams, id]
   );
 
   if (Array.isArray(quizIds)) {
@@ -119,7 +126,7 @@ async function updateSchoolGame(id, {
 // payload on purpose (see schools.controller.js#publicGames).
 async function listPublicForSchool(schoolId) {
   const [rows] = await pool.query(
-    `SELECT id, title, title_ar, mode, audience, status, scheduled_date, scheduled_time
+    `SELECT id, title, title_ar, card_image_url, mode, audience, status, scheduled_date, scheduled_time
      FROM game_sessions
      WHERE school_id = ? AND status IN ('waiting', 'active')
      ORDER BY scheduled_date ASC, scheduled_time ASC, created_at DESC`,
@@ -143,6 +150,7 @@ async function listPublicForSchool(schoolId) {
     id: r.id,
     title: r.title,
     titleAr: r.title_ar,
+    cardImageUrl: r.card_image_url,
     mode: r.mode,
     audience: r.audience,
     status: r.status,
