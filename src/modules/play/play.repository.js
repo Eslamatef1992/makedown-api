@@ -554,24 +554,24 @@ async function advanceTurn(sessionId) {
 //
 // A school-hosted session (session.school_id set) has no host account at
 // all — host_user_id is always NULL for those (see startSession/joinSession)
-// — every player logs in with their own account instead. In practice a
-// school "trivia night" is still run from one shared screen per team (a
-// laptop/projector one team gathers around), so here the same pass-the-
-// device idea is scoped to the team instead of a single host account: any
-// OTHER already-joined participant on the SAME team as the current
-// turn-holder may also act on that team's behalf. Returns the id of the
-// participant the action should actually be recorded/scored against, which
-// is always the real current-turn participant, never the caller's own id.
+// — every player logs in with their own account instead. But in practice a
+// school "trivia night" is still run from ONE shared screen for the whole
+// room (a teacher/emcee reads out the category, calls on whichever team,
+// and taps the tile/Next themselves) — so gating the click on literally
+// being the current-turn participant, or even just a teammate of theirs,
+// just means whoever is actually holding the clicker gets rejected the
+// moment it's the other team's turn. So here ANY already-joined
+// participant of the session may act, regardless of team — this is safe
+// because the action is still always recorded/scored against the real
+// current-turn participant (activeParticipantId), never the caller's own
+// id, exactly like the single-host model above.
 async function resolveActingParticipant(session, participant, userId) {
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const activeParticipantId = turnOrder[session.current_turn_index];
   if (!activeParticipantId) throw new Error('NOT_YOUR_TURN');
   if (participant && participant.id === activeParticipantId) return activeParticipantId;
   if (session.host_user_id === userId) return activeParticipantId;
-  if (session.school_id && participant && participant.team_id) {
-    const active = await findParticipantById(activeParticipantId);
-    if (active && active.team_id === participant.team_id) return activeParticipantId;
-  }
+  if (session.school_id && participant) return activeParticipantId;
   throw new Error('NOT_YOUR_TURN');
 }
 
@@ -1046,16 +1046,16 @@ async function adjustScore(sessionId, hostUserId, participantId, delta, reason) 
   if (!participant || participant.session_id !== Number(sessionId)) throw new Error('PARTICIPANT_NOT_FOUND');
 
   // Same reasoning as resolveActingParticipant above: a school session has
-  // no host account, so let any already-joined participant on the SAME
-  // team as the participant being adjusted make the correction, instead of
-  // requiring a host_user_id that can never match for these sessions.
+  // no host account, so let any already-joined participant of the session
+  // make the correction, instead of requiring a host_user_id that can
+  // never match for these sessions.
   const isHost = session.host_user_id === hostUserId;
-  let isSchoolTeammate = false;
-  if (!isHost && session.school_id && participant.team_id) {
+  let isSchoolParticipant = false;
+  if (!isHost && session.school_id) {
     const caller = await findParticipant(sessionId, hostUserId);
-    isSchoolTeammate = Boolean(caller && caller.team_id === participant.team_id);
+    isSchoolParticipant = Boolean(caller);
   }
-  if (!isHost && !isSchoolTeammate) throw new Error('NOT_HOST');
+  if (!isHost && !isSchoolParticipant) throw new Error('NOT_HOST');
 
   await pool.query('UPDATE game_participants SET score = GREATEST(0, score + ?) WHERE id = ?', [delta, participantId]);
   if (participant.team_id) {
