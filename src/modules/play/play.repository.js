@@ -491,10 +491,39 @@ async function leaveSession(sessionId, userId) {
 
   const session = await findSessionRaw(sessionId);
   if (session && session.status === 'active') {
+    // Requested behavior: a game shouldn't keep partial progress once
+    // someone has dropped out mid-game — reset the whole board for
+    // whoever's still in it, not just hand off the leaver's own turn.
+    // Every tile goes back to unanswered (game_answers is what getBoard
+    // checks for "used"), lifelines become usable again, and every
+    // participant's/team's score returns to 0.
+    await pool.query('DELETE FROM game_answers WHERE session_id = ?', [sessionId]);
+    await pool.query('DELETE FROM game_lifeline_usage WHERE session_id = ?', [sessionId]);
+    await pool.query('UPDATE game_participants SET score = 0 WHERE session_id = ?', [sessionId]);
+    await pool.query('UPDATE game_teams SET score = 0 WHERE session_id = ?', [sessionId]);
+
+    // Land the turn back on the first still-active (not left) participant
+    // in turn order, rather than hardcoding index 0 — the very first slot
+    // could be the person who just left.
     const turnOrder = parseJsonColumn(session.turn_order_json, []);
-    if (turnOrder[session.current_turn_index] === participant.id) {
-      await advanceTurn(sessionId);
+    let resetIndex = 0;
+    if (turnOrder.length) {
+      const [activeRows] = await pool.query(
+        'SELECT id FROM game_participants WHERE session_id = ? AND left_at IS NULL',
+        [sessionId]
+      );
+      const activeIds = new Set(activeRows.map((r) => r.id));
+      const firstActive = turnOrder.findIndex((id) => activeIds.has(id));
+      resetIndex = firstActive === -1 ? 0 : firstActive;
     }
+
+    await pool.query(
+      `UPDATE game_sessions
+       SET current_turn_index = ?, current_question_id = NULL, turn_started_at = NULL, turn_ends_at = NULL,
+           current_scan_token = NULL, current_scan_scanned_at = NULL
+       WHERE id = ?`,
+      [resetIndex, sessionId]
+    );
   }
   return participant;
 }
