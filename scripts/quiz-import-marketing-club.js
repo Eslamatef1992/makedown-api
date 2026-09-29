@@ -382,7 +382,7 @@ async function main() {
     if (!/already uses this contact email/i.test(err.message)) throw err;
     console.log('  school already exists — reusing it and resetting its password to the one this script uses.');
     const schools = await api('GET', '/admin/schools', null, ADMIN_TOKEN);
-    school = (Array.isArray(schools) ? schools : schools.items || []).find(
+    school = (Array.isArray(schools) ? schools : schools.rows || schools.items || []).find(
       (s) => (s.contactEmail || s.contact_email) === SCHOOL.contactEmail
     );
     if (!school) throw new Error(`Could not find existing school with email ${SCHOOL.contactEmail} in the list`);
@@ -401,7 +401,9 @@ async function main() {
   console.log('\nChecking for quizzes this school already has (so reruns don\'t duplicate)...');
   const existingQuizzes = await api('GET', '/admin/quizzes', null, SCHOOL_TOKEN);
   const existingTitles = new Set(
-    (Array.isArray(existingQuizzes) ? existingQuizzes : existingQuizzes.items || []).map((q) => q.titleEn || q.title_en)
+    (Array.isArray(existingQuizzes) ? existingQuizzes : existingQuizzes.rows || existingQuizzes.items || []).map(
+      (q) => q.titleEn || q.title_en
+    )
   );
 
   let totalQuestions = 0;
