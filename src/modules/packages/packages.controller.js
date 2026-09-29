@@ -81,7 +81,10 @@ const purchase = asyncHandler(async (req, res) => {
 
   if (paymentMethod === 'cash') {
     await ordersRepo.updateStatus(order.id, { status: 'processing', payment_status: 'unpaid' });
-    const userPackage = await repo.createUserPackage({
+    // grantPackage (not createUserPackage) — expires any other active
+    // package for this user first, so Renew/Upgrade/Buy all correctly
+    // leave exactly one active package. See packages.repository.js.
+    const userPackage = await repo.grantPackage({
       userId: req.user.id,
       packageId: pkg.id,
       orderId: order.id,
@@ -112,4 +115,24 @@ const purchase = asyncHandler(async (req, res) => {
   created(res, { order, redirectUrl: paymentUrl }, 'Redirecting to payment');
 });
 
-module.exports = { ...crud, publicList, purchase };
+// Lets the mobile app poll for whether a knet/credit_card package
+// purchase actually went through, since the only other signal is a
+// browser redirect (myFatoorahCallback in payments.controller.js) built
+// for the website, not something a Flutter app can read. Open the
+// MyFatoorah paymentUrl in a webview, then poll this once it closes/
+// redirects.
+const purchaseStatus = asyncHandler(async (req, res) => {
+  const order = await ordersRepo.findById(req.params.orderId);
+  if (!order || String(order.user_id) !== String(req.user.id)) {
+    throw ApiError.notFound('Order not found');
+  }
+
+  let status = 'pending';
+  if (order.payment_status === 'paid') status = 'success';
+  else if (order.payment_status === 'failed') status = 'failed';
+
+  const userPackage = await repo.findUserPackageByOrderId(order.id);
+  ok(res, { orderId: order.id, status, paymentStatus: order.payment_status, package: userPackage || null });
+});
+
+module.exports = { ...crud, publicList, purchase, purchaseStatus };

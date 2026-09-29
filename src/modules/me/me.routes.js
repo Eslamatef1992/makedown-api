@@ -95,7 +95,17 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         credits_remaining: { type: integer, example: 4 }
  *         purchased_at: { type: string, format: date-time }
  *         expires_at: { type: string, format: date-time, nullable: true }
- *         status: { type: string, enum: [active, expired, used], example: active, description: "In practice this is always 'active' today — nothing in the codebase currently transitions a row to expired/used, even once credits_remaining reaches 0." }
+ *         status:
+ *           type: string
+ *           enum: [active, expired, used]
+ *           example: active
+ *           description: >
+ *             active = usable, has credits left, and is the only active
+ *             package for this user (buying any other package — Renew or
+ *             Upgrade — immediately expires it). expired = superseded by a
+ *             later purchase; its leftover credits, if any, were forfeited.
+ *             used = ran out of credits naturally without being replaced.
+ *             No row with status active at all means unsubscribed.
  *         package_name_en: { type: string, example: "5-Game Pack" }
  *         package_name_ar: { type: string, example: "باقة 5 ألعاب" }
  *         package_credits: { type: integer, example: 5 }

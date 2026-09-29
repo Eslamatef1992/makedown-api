@@ -3,6 +3,12 @@ const { makeCrudRepository } = require('../../utils/crudFactory');
 
 const base = makeCrudRepository({ table: 'packages', searchableColumns: ['name_en', 'name_ar'], defaultOrderBy: 'sort_order ASC, id ASC' });
 
+// tier is stored/returned as the raw integer (1/2/3) — has been since it
+// shipped, other clients may already read it as a number, so it's kept
+// as-is. tierName is purely additive: the string name for anyone who'd
+// rather not hardcode "2 means Premium" on their own end.
+const TIER_NAMES = { 1: 'standard', 2: 'premium', 3: 'vip' };
+
 async function listActive() {
   const [rows] = await pool.query('SELECT * FROM packages WHERE is_active = 1 ORDER BY sort_order ASC, id ASC');
   return attachUpgradableTo(rows);
@@ -11,18 +17,25 @@ async function listActive() {
 // Every package in a strictly higher tier is a valid upgrade target from
 // this one — this is what lets the frontend (web + Flutter) decide "Renew
 // only" (already top tier, upgradableTo is empty) vs "Renew + Upgrade"
-// without hardcoding a tier order of its own.
+// without hardcoding a tier order of its own. isRenewable is always true —
+// there's no tier restriction on renewing (only on upgrading), a package
+// can always be bought again.
 function attachUpgradableTo(packages) {
   return packages.map((pkg) => ({
     ...pkg,
+    tierName: TIER_NAMES[pkg.tier] || null,
+    isRenewable: true,
     upgradableTo: packages.filter((other) => other.tier > pkg.tier).map((other) => other.id),
   }));
 }
 
 // ---- user_packages (a customer's purchased credit packages) ----
 
-// Packages are purely game-count based — no date expiry. A package stays
-// usable until its credits run out, however long that takes.
+// Packages are purely game-count based — no date expiry (a deliberate
+// product decision — see grantPackage for the other one: buying a new
+// package always replaces whatever was active, credits don't carry over).
+// A package stays usable until its credits run out, however long that
+// takes.
 async function createUserPackage({ userId, packageId, orderId, credits }) {
   const [result] = await pool.query('INSERT INTO user_packages SET ?', [
     {
@@ -34,6 +47,22 @@ async function createUserPackage({ userId, packageId, orderId, credits }) {
     },
   ]);
   return findUserPackageById(result.insertId);
+}
+
+// Buying a new package (Renew or Upgrade — same endpoint, see
+// packages.controller.js#purchase) always leaves exactly one active
+// package: any other still-active package for this user is expired first,
+// and its leftover credits_remaining are forfeited, not merged or carried
+// over. This is the one call site every "credits granted" path (cash,
+// and the MyFatoorah callback) must go through instead of calling
+// createUserPackage directly, so this rule can never be bypassed.
+async function expireOtherActivePackages(userId) {
+  await pool.query("UPDATE user_packages SET status = 'expired' WHERE user_id = ? AND status = 'active'", [userId]);
+}
+
+async function grantPackage({ userId, packageId, orderId, credits }) {
+  await expireOtherActivePackages(userId);
+  return createUserPackage({ userId, packageId, orderId, credits });
 }
 
 async function findUserPackageById(id) {
@@ -93,8 +122,16 @@ async function consumeActivePackageCredit(userId) {
   if (!candidates.length) return null;
 
   const packageId = candidates[0].id;
+  // Flips to 'used' in the same statement once this spend drains it to 0 —
+  // without this, status stayed 'active' forever even at 0 credits, which
+  // made "does this user have an active package" unreliable to check by
+  // status alone. 'used' means "ran out naturally"; 'expired' (see
+  // expireOtherActivePackages) means "superseded by a newer purchase".
   const [result] = await pool.query(
-    "UPDATE user_packages SET credits_remaining = credits_remaining - 1 WHERE id = ? AND credits_remaining > 0",
+    `UPDATE user_packages
+     SET credits_remaining = credits_remaining - 1,
+         status = CASE WHEN credits_remaining - 1 <= 0 THEN 'used' ELSE status END
+     WHERE id = ? AND credits_remaining > 0`,
     [packageId]
   );
   if (!result.affectedRows) return null; // lost a race with another request — caller decides what to do
@@ -121,6 +158,8 @@ module.exports = {
   ...base,
   listActive,
   createUserPackage,
+  expireOtherActivePackages,
+  grantPackage,
   findUserPackageById,
   findUserPackageByOrderId,
   listUserPackages,

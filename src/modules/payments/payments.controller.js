@@ -72,7 +72,10 @@ const myFatoorahCallback = asyncHandler(async (req, res) => {
     if (!alreadyGranted) {
       const pkg = await packagesRepo.findById(packageId);
       if (pkg) {
-        await packagesRepo.createUserPackage({
+        // grantPackage — expires any other active package for this user
+        // first (see packages.repository.js), same rule the cash purchase
+        // branch in packages.controller.js follows.
+        await packagesRepo.grantPackage({
           userId: order.user_id,
           packageId: pkg.id,
           orderId: order.id,
