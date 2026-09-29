@@ -92,6 +92,22 @@ const CAR_BRANDS_QUIZ = {
       optionsAr: ['Jeep Wrangler', 'تويوتا لاند كروزر', 'لاند روفر ديفندر', 'نيسان باترول'],
       correctOptionIndex: 0,
     },
+    {
+      points: 400,
+      questionTextEn: '⭕ Which German car brand is famous for its four-rings logo?',
+      questionTextAr: '⭕ شنو السيارة الألمانية المشهورة بشعار الحلقات الأربع؟',
+      optionsEn: ['Audi', 'BMW', 'Mercedes-Benz', 'Volkswagen'],
+      optionsAr: ['أودي', 'بي إم دبليو', 'مرسيدس بنز', 'فولكس فاجن'],
+      correctOptionIndex: 0,
+    },
+    {
+      points: 600,
+      questionTextEn: '🏁 What was the name of the world\'s first car with an internal combustion engine, invented by Karl Benz?',
+      questionTextAr: '🏁 شنو اسم أول سيارة في العالم تعمل بمحرك احتراق داخلي، اخترعها كارل بنز؟',
+      optionsEn: ['Benz Patent-Motorwagen', 'Ford Model T', 'Duryea Motor Wagon', 'Oldsmobile Curved Dash'],
+      optionsAr: ['بنز باتنت موتورفاغن', 'فورد موديل تي', 'دورييا موتور واغن', 'أولدزموبيل كيرفد داش'],
+      correctOptionIndex: 0,
+    },
   ],
 };
 
