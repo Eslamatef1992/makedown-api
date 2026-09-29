@@ -40,21 +40,19 @@ async function ensureAdminToken() {
   ADMIN_TOKEN = result.accessToken;
 }
 
-// TODO: fill this in once you give me the real answer + wrong options for
-// "Which Australian institute is Box Hill College Kuwait affiliated with?"
-// and I'll uncomment/add it — leaving it out for now rather than inventing
-// institutional facts.
-const BOX_HILL_EXTRA_QUESTION = null;
-/* Example shape once you supply it:
+// A second 600-point question, computed purely from the two Box Hill facts
+// already confirmed from the source PDF (founding year 2007, accreditation
+// date 22 Oct 2010) rather than inventing any new institutional fact — the
+// original Q2 (Australian affiliate institute) is still skipped since
+// nobody has supplied its real answer.
 const BOX_HILL_EXTRA_QUESTION = {
   points: 600,
-  questionTextEn: 'Which Australian institute is Box Hill College Kuwait affiliated with?',
-  questionTextAr: 'ما اسم المعهد الأسترالي الذي ترتبط به كلية بوكسهل الكويت؟',
-  optionsEn: ['Box Hill Institute', 'TAFE NSW', 'RMIT', 'Swinburne'],
-  optionsAr: ['معهد بوكس هيل', 'تيف نيو ساوث ويلز', 'آر إم آي تي', 'سوينبرن'],
+  questionTextEn: 'About how many years after it was founded did Box Hill College Kuwait receive its institutional accreditation?',
+  questionTextAr: 'كم عدد السنوات تقريباً التي استغرقتها كلية بوكسهل الكويت من تأسيسها حتى حصولها على الاعتماد المؤسسي؟',
+  optionsEn: ['3 years', '1 year', '5 years', '7 years'],
+  optionsAr: ['٣ سنوات', 'سنة واحدة', '٥ سنوات', '٧ سنوات'],
   correctOptionIndex: 0,
 };
-*/
 
 const CAR_BRANDS_QUIZ = {
   titleEn: 'Car Brands',
@@ -145,7 +143,12 @@ async function main() {
       console.log('Could not find "Box Hill College Kuwait" quiz for this school — skipping its extra question.');
     } else {
       const existingQuestions = await api('GET', `/admin/quizzes/${boxHillId}`, null, SCHOOL_TOKEN);
-      const nextSort = (existingQuestions.questions || []).length;
+      const questionList = existingQuestions.questions || [];
+      const nextSort = questionList.length;
+      const alreadyThere = questionList.some((q) => q.question_text_en === BOX_HILL_EXTRA_QUESTION.questionTextEn);
+      if (alreadyThere) {
+        console.log('Box Hill already has this question — skipping.');
+      } else {
       await api('POST', `/admin/quizzes/${boxHillId}/questions`, {
         questionTextEn: BOX_HILL_EXTRA_QUESTION.questionTextEn,
         questionTextAr: BOX_HILL_EXTRA_QUESTION.questionTextAr,
@@ -159,6 +162,7 @@ async function main() {
         sortOrder: nextSort,
       }, SCHOOL_TOKEN);
       console.log(`Added 600-point question to Box Hill College Kuwait (quiz id ${boxHillId}).`);
+      }
     }
   } else {
     console.log('Skipping Box Hill\'s extra question — BOX_HILL_EXTRA_QUESTION is not filled in yet.');
