@@ -1,17 +1,18 @@
 const BASE = 'https://back.makedown.online/api/v1';
-const TOKEN = process.env.MD_ADMIN_TOKEN;
 
-if (!TOKEN) {
-  console.error('Missing MD_ADMIN_TOKEN env var');
-  process.exit(1);
-}
+// Either set MD_ADMIN_TOKEN directly (a token you already copied from
+// somewhere), or set ADMIN_EMAIL + ADMIN_PASSWORD and this script logs in
+// for you — no manual copy/paste of the access token required, which is
+// where the last few attempts went wrong (a placeholder string got left in
+// place of a real token).
+let TOKEN = process.env.MD_ADMIN_TOKEN || null;
 
-async function api(method, path, body) {
+async function api(method, path, body, overrideToken) {
   const res = await fetch(BASE + path, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${TOKEN}`,
+      ...(overrideToken === false ? {} : { Authorization: `Bearer ${overrideToken || TOKEN}` }),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -20,6 +21,20 @@ async function api(method, path, body) {
     throw new Error(`${method} ${path} -> ${res.status}: ${JSON.stringify(json)}`);
   }
   return json.data;
+}
+
+async function ensureToken() {
+  if (TOKEN) return;
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.error('Set either MD_ADMIN_TOKEN, or ADMIN_EMAIL + ADMIN_PASSWORD, as env vars.');
+    process.exit(1);
+  }
+  console.log(`Logging in as ${email}...`);
+  const result = await api('POST', '/admin/auth/login', { identifier: email, password }, false);
+  TOKEN = result.accessToken;
+  console.log('Logged in OK.');
 }
 
 // The 12 Kuwait Perfume questions from quiz-import2.js — that script never
@@ -126,9 +141,10 @@ const QUESTIONS = [
 ];
 
 async function main() {
+  await ensureToken();
   console.log('Verifying token...');
   const me = await api('GET', '/admin/auth/me');
-  console.log('Logged in as:', me.email || me.identifier || JSON.stringify(me));
+  console.log('Logged in as:', me.admin?.email || me.school?.email || JSON.stringify(me));
 
   console.log('\nCreating "Kuwait Perfume" quiz (no category, plain style)...');
   const quiz = await api('POST', '/admin/quizzes', {
