@@ -365,26 +365,51 @@ async function main() {
   const me = await api('GET', '/admin/auth/me', null, ADMIN_TOKEN);
   console.log('Logged in as admin:', me.admin?.email || JSON.stringify(me));
 
+  const schoolPassword = process.env.SCHOOL_PASSWORD || SCHOOL.password;
+
   console.log(`\nCreating school "${SCHOOL.nameEn}" (${SCHOOL.contactEmail})...`);
-  const school = await api('POST', '/admin/schools', {
-    nameEn: SCHOOL.nameEn,
-    nameAr: SCHOOL.nameAr,
-    contactEmail: SCHOOL.contactEmail,
-    password: SCHOOL.password,
-    isActive: true,
-  }, ADMIN_TOKEN);
-  console.log(`  created school id ${school.id}`);
+  let school;
+  try {
+    school = await api('POST', '/admin/schools', {
+      nameEn: SCHOOL.nameEn,
+      nameAr: SCHOOL.nameAr,
+      contactEmail: SCHOOL.contactEmail,
+      password: schoolPassword,
+      isActive: true,
+    }, ADMIN_TOKEN);
+    console.log(`  created school id ${school.id}`);
+  } catch (err) {
+    if (!/already uses this contact email/i.test(err.message)) throw err;
+    console.log('  school already exists — reusing it and resetting its password to the one this script uses.');
+    const schools = await api('GET', '/admin/schools', null, ADMIN_TOKEN);
+    school = (Array.isArray(schools) ? schools : schools.items || []).find(
+      (s) => (s.contactEmail || s.contact_email) === SCHOOL.contactEmail
+    );
+    if (!school) throw new Error(`Could not find existing school with email ${SCHOOL.contactEmail} in the list`);
+    await api('PATCH', `/admin/schools/${school.id}`, { password: schoolPassword }, ADMIN_TOKEN);
+    console.log(`  reusing school id ${school.id}, password reset`);
+  }
 
   console.log(`\nLogging in AS the school (so quizzes are created as its own private content)...`);
   const schoolLogin = await api('POST', '/admin/auth/login', {
     identifier: process.env.SCHOOL_EMAIL || SCHOOL.contactEmail,
-    password: process.env.SCHOOL_PASSWORD || SCHOOL.password,
+    password: schoolPassword,
   }, false);
   const SCHOOL_TOKEN = schoolLogin.accessToken;
   console.log('School login OK.');
 
+  console.log('\nChecking for quizzes this school already has (so reruns don\'t duplicate)...');
+  const existingQuizzes = await api('GET', '/admin/quizzes', null, SCHOOL_TOKEN);
+  const existingTitles = new Set(
+    (Array.isArray(existingQuizzes) ? existingQuizzes : existingQuizzes.items || []).map((q) => q.titleEn || q.title_en)
+  );
+
   let totalQuestions = 0;
   for (const quizDef of QUIZZES) {
+    if (existingTitles.has(quizDef.titleEn)) {
+      console.log(`\nSkipping "${quizDef.titleEn}" — a quiz with this title already exists for this school.`);
+      continue;
+    }
     console.log(`\nCreating quiz "${quizDef.titleEn}"...`);
     const quiz = await api('POST', '/admin/quizzes', {
       titleEn: quizDef.titleEn,
