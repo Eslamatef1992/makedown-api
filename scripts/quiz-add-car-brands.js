@@ -97,6 +97,20 @@ const CAR_BRANDS_QUIZ = {
 
 async function main() {
   await ensureAdminToken();
+
+  // Don't assume the school's password is still what an earlier script run
+  // set it to — reset it to the known value every time via the admin
+  // token, so this only ever depends on the admin login working.
+  console.log('Verifying admin token and resetting the school password...');
+  const me = await api('GET', '/admin/auth/me', null, ADMIN_TOKEN);
+  console.log('Logged in as admin:', me.admin?.email || JSON.stringify(me));
+  const schools = await api('GET', '/admin/schools', null, ADMIN_TOKEN);
+  const schoolRows = Array.isArray(schools) ? schools : schools.rows || [];
+  const school = schoolRows.find((s) => s.contact_email === SCHOOL.contactEmail);
+  if (!school) throw new Error(`Could not find a school with contact email ${SCHOOL.contactEmail}`);
+  await api('PATCH', `/admin/schools/${school.id}`, { password: SCHOOL.password }, ADMIN_TOKEN);
+  console.log(`  reset password for school id ${school.id}`);
+
   const schoolLogin = await api('POST', '/admin/auth/login', {
     identifier: SCHOOL.contactEmail,
     password: SCHOOL.password,
