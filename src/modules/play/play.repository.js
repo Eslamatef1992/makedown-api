@@ -550,15 +550,28 @@ async function advanceTurn(sessionId) {
 // genuinely owns it (their own account happens to be the current-turn
 // participant) or when the caller is this session's host acting on behalf
 // of whoever's turn it currently is — otherwise a guest's (or a second
-// team's) turn could never be taken at all. Returns the id of the
+// team's) turn could never be taken at all.
+//
+// A school-hosted session (session.school_id set) has no host account at
+// all — host_user_id is always NULL for those (see startSession/joinSession)
+// — every player logs in with their own account instead. In practice a
+// school "trivia night" is still run from one shared screen per team (a
+// laptop/projector one team gathers around), so here the same pass-the-
+// device idea is scoped to the team instead of a single host account: any
+// OTHER already-joined participant on the SAME team as the current
+// turn-holder may also act on that team's behalf. Returns the id of the
 // participant the action should actually be recorded/scored against, which
-// is always the real current-turn participant, never the host's own id.
-function resolveActingParticipant(session, participant, userId) {
+// is always the real current-turn participant, never the caller's own id.
+async function resolveActingParticipant(session, participant, userId) {
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const activeParticipantId = turnOrder[session.current_turn_index];
   if (!activeParticipantId) throw new Error('NOT_YOUR_TURN');
   if (participant && participant.id === activeParticipantId) return activeParticipantId;
   if (session.host_user_id === userId) return activeParticipantId;
+  if (session.school_id && participant && participant.team_id) {
+    const active = await findParticipantById(activeParticipantId);
+    if (active && active.team_id === participant.team_id) return activeParticipantId;
+  }
   throw new Error('NOT_YOUR_TURN');
 }
 
@@ -566,7 +579,7 @@ async function pickTile(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  resolveActingParticipant(session, participant, userId);
+  await resolveActingParticipant(session, participant, userId);
   if (session.current_question_id) throw new Error('TILE_ALREADY_IN_PROGRESS');
 
   const belongs = await questionBelongsToSession(sessionId, questionId);
@@ -628,7 +641,7 @@ async function revealQuestion(sessionId, userId) {
   if (!question || question.question_type !== 'audio') throw new Error('NO_ACTIVE_QUESTION');
 
   const participant = await findParticipant(sessionId, userId);
-  resolveActingParticipant(session, participant, userId);
+  await resolveActingParticipant(session, participant, userId);
 
   const timeLimit = question.time_limit_seconds || DEFAULT_TIME_LIMIT;
   await pool.query(
@@ -778,7 +791,7 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
   if (session.turn_ends_at && new Date(session.turn_ends_at).getTime() < Date.now()) throw new Error('TIME_EXPIRED');
 
   const participant = await findParticipant(sessionId, userId);
-  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  const activeParticipantId = await resolveActingParticipant(session, participant, userId);
 
   return resolveTurn(sessionId, { participantId: activeParticipantId, selectedOptionIndex, timeTakenMs });
 }
@@ -877,7 +890,7 @@ async function useFiftyFifty(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  const activeParticipantId = await resolveActingParticipant(session, participant, userId);
   if (await hasUsedLifeline(sessionId, activeParticipantId, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
 
   const question = await findQuestionRaw(questionId);
@@ -893,7 +906,7 @@ async function useSkip(sessionId, userId, questionId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  const activeParticipantId = await resolveActingParticipant(session, participant, userId);
   if (await hasUsedLifeline(sessionId, activeParticipantId, 'skip')) throw new Error('LIFELINE_ALREADY_USED');
 
   await markLifelineUsed(sessionId, activeParticipantId, 'skip', questionId);
@@ -904,7 +917,7 @@ async function requestPhoneAFriend(sessionId, userId, questionId, targetParticip
   const session = await findSessionRaw(sessionId);
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
-  const activeParticipantId = resolveActingParticipant(session, participant, userId);
+  const activeParticipantId = await resolveActingParticipant(session, participant, userId);
   if (await hasUsedLifeline(sessionId, activeParticipantId, 'phone_a_friend')) throw new Error('LIFELINE_ALREADY_USED');
 
   const target = await findParticipantById(targetParticipantId);
@@ -1028,10 +1041,21 @@ async function matchRandom(sessionId, userId) {
 async function adjustScore(sessionId, hostUserId, participantId, delta, reason) {
   const session = await findSessionRaw(sessionId);
   if (!session) throw new Error('SESSION_NOT_FOUND');
-  if (session.host_user_id !== hostUserId) throw new Error('NOT_HOST');
 
   const participant = await findParticipantById(participantId);
   if (!participant || participant.session_id !== Number(sessionId)) throw new Error('PARTICIPANT_NOT_FOUND');
+
+  // Same reasoning as resolveActingParticipant above: a school session has
+  // no host account, so let any already-joined participant on the SAME
+  // team as the participant being adjusted make the correction, instead of
+  // requiring a host_user_id that can never match for these sessions.
+  const isHost = session.host_user_id === hostUserId;
+  let isSchoolTeammate = false;
+  if (!isHost && session.school_id && participant.team_id) {
+    const caller = await findParticipant(sessionId, hostUserId);
+    isSchoolTeammate = Boolean(caller && caller.team_id === participant.team_id);
+  }
+  if (!isHost && !isSchoolTeammate) throw new Error('NOT_HOST');
 
   await pool.query('UPDATE game_participants SET score = GREATEST(0, score + ?) WHERE id = ?', [delta, participantId]);
   if (participant.team_id) {
