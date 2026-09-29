@@ -33,7 +33,10 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         created_at: { type: string, format: date-time }
  *         turnOrder: { type: array, items: { type: integer }, description: "Ordered list of game_participants.id — whose turn is next" }
  *         currentTurnParticipantId: { type: integer, nullable: true }
- *         currentQuestion: { type: object, nullable: true, description: "The active tile's question, answer key stripped, or null between tiles" }
+ *         currentQuestion:
+ *           nullable: true
+ *           description: The active tile's question (see BoardQuestion) with the answer key stripped, or null between tiles.
+ *           allOf: [{ $ref: '#/components/schemas/BoardQuestion' }]
  *         awaitingScan: { type: boolean, description: "True while a QR/audio question is waiting to be revealed (see /play/sessions/{id}/scan and /reveal)" }
  *         participants:
  *           type: array
@@ -46,17 +49,80 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *           items: { type: object, properties: { id: { type: integer }, name: { type: string }, color: { type: string, nullable: true }, score: { type: integer } } }
  *         board:
  *           type: array
- *           description: One entry per chosen category/quiz, each with its 6 point tiles.
- *           items: { type: object }
+ *           description: One entry per quiz/category chosen for this session, each with its point-tile questions.
+ *           items:
+ *             type: object
+ *             properties:
+ *               id: { type: integer, description: "quiz id" }
+ *               title_en: { type: string }
+ *               title_ar: { type: string }
+ *               category_id: { type: integer, nullable: true }
+ *               cover_image_url: { type: string, nullable: true }
+ *               category_name_en: { type: string, nullable: true }
+ *               category_name_ar: { type: string, nullable: true }
+ *               sort_order: { type: integer }
+ *               questions:
+ *                 type: array
+ *                 description: This quiz's point tiles for this session's board (already filtered to this session's mode, deterministically picked per session so the set never shifts once the game starts).
+ *                 items:
+ *                   allOf:
+ *                     - { $ref: '#/components/schemas/BoardQuestion' }
+ *                     - type: object
+ *                       properties: { used: { type: boolean, description: "True if this tile was already picked/answered and can't be picked again" } }
+ *     BoardQuestion:
+ *       type: object
+ *       description: >
+ *         A quiz_questions row with the answer key (correct_option_index)
+ *         stripped. `options_json_en`/`options_json_ar` are real JSON
+ *         arrays of option strings (not JSON-encoded strings) — the DB
+ *         driver auto-parses the JSON column on read.
+ *       properties:
+ *         id: { type: integer, example: 305 }
+ *         quiz_id: { type: integer, example: 12 }
+ *         question_text_en: { type: string, example: "Capital of Japan?" }
+ *         question_text_ar: { type: string }
+ *         question_image_url: { type: string, nullable: true }
+ *         question_type: { type: string, enum: [text, image, qr, audio] }
+ *         mode: { type: string, enum: [solo, team, both], description: "Which session mode this tile is authored for ('both' shows on any board)" }
+ *         media_url: { type: string, nullable: true, description: "Audio clip URL for question_type=audio" }
+ *         options_json_en: { type: array, items: { type: string }, example: ["Tokyo", "Osaka", "Kyoto", "Nagoya"] }
+ *         options_json_ar: { type: array, items: { type: string }, nullable: true }
+ *         points: { type: integer, example: 200 }
+ *         time_limit_seconds: { type: integer, example: 20 }
+ *         sort_order: { type: integer }
+ *     PlayableQuiz:
+ *       type: object
+ *       description: A quiz/category card for the board picker — returned by GET /play/quizzes.
+ *       properties:
+ *         id: { type: integer }
+ *         title_en: { type: string }
+ *         title_ar: { type: string }
+ *         description_en: { type: string, nullable: true }
+ *         description_ar: { type: string, nullable: true }
+ *         cover_image_url: { type: string, nullable: true }
+ *         difficulty: { type: string, nullable: true }
+ *         category_id: { type: integer, nullable: true }
+ *         supported_modes: { type: string, enum: [solo, team, both], description: "Which session mode(s) this quiz can be picked for" }
+ *         category_name_en: { type: string, nullable: true }
+ *         category_name_ar: { type: string, nullable: true }
+ *         question_count: { type: integer, description: "How many questions this quiz has — always > 0 here, empty quizzes are filtered out" }
  * tags:
  *   - name: Play
- *     description: Live multiplayer game engine — create/join a game, the Jeopardy-style points board, turns, lifelines, invites
+ *     description: >
+ *       Live multiplayer game engine — create/join a game, the
+ *       Jeopardy-style points board, turns, lifelines, invites. HTTP 402 is
+ *       reserved exclusively for "no game credits left" (see POST
+ *       /play/sessions and /play/sessions/join) — no other endpoint in this
+ *       API returns 402.
  * /play/quizzes:
  *   get:
  *     tags: [Play]
  *     summary: List quizzes (categories) that have at least one question, for board selection
- *     description: Requires login — this was previously undocumented here (no security block), which is why an unauthenticated call returns a 401 that doesn't show up in this doc's expected responses.
- *     security: [{ bearerAuth: [] }]
+ *     description: >
+ *       Public — no login required, so a guest can browse the Select
+ *       Category screen before signing in. Only actually creating or
+ *       joining a game (POST /play/sessions, /play/sessions/join) requires
+ *       auth.
  *     parameters:
  *       - in: query
  *         name: category_id
@@ -66,10 +132,9 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         schema: { type: string, enum: [solo, team] }
  *         description: Only return quizzes the admin marked as supporting this mode (or 'both')
  *     responses:
- *       200: { description: List of quizzes }
- *       401:
- *         description: Missing or invalid access token
- *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "Missing or invalid Authorization header" } } }
+ *       200:
+ *         description: List of quizzes
+ *         content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/ApiSuccess' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/PlayableQuiz' } } } }] } } }
  * /play/sessions:
  *   post:
  *     tags: [Play]
@@ -227,7 +292,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiSuccess' }
  *             examples:
- *               textOrImage: { value: { success: true, message: OK, data: { question: { id: 305, question_type: text, question_text_en: "Capital of Japan?", options_json_en: "[\"Tokyo\",\"Osaka\",\"Kyoto\",\"Nagoya\"]", points: 200 }, awaitingScan: false, timeLimitSeconds: 20 } } }
+ *               textOrImage: { value: { success: true, message: OK, data: { question: { id: 305, question_type: text, question_text_en: "Capital of Japan?", options_json_en: ["Tokyo", "Osaka", "Kyoto", "Nagoya"], points: 200 }, awaitingScan: false, timeLimitSeconds: 20 } } }
  *               qr: { value: { success: true, message: OK, data: { question: { id: 306, question_type: qr, points: 400 }, awaitingScan: true, scanToken: "9f1c...", scanUrl: "https://www.makedown.online/play/scan/91/9f1c...", scanQrDataUrl: "data:image/png;base64,iVBORw0..." } } }
  *       403: { description: Not this player's turn, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "not your turn" } } } }
  *       409: { description: A tile is already open, or this one was already played, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "tile already in progress" } } } }
@@ -364,9 +429,12 @@ const requireAuth = require('../../middlewares/auth.middleware');
 // isn't logged in at all (see the doc comment above and play.controller.js).
 router.post('/sessions/:id/scan', controller.scanQuestion);
 
-router.use(requireAuth);
-
+// Public — lets a guest browse categories/quizzes before signing in (see
+// the doc comment above). Actually creating/joining a game still requires
+// auth, enforced below.
 router.get('/quizzes', controller.listPlayableQuizzes);
+
+router.use(requireAuth);
 
 router.post('/sessions', controller.createSession);
 router.post('/sessions/join', controller.joinByCode);
