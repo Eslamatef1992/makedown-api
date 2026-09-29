@@ -438,7 +438,17 @@ async function joinSession(sessionId, userId) {
 async function startSession(sessionId, hostUserId) {
   const session = await findSessionRaw(sessionId);
   if (!session) throw new Error('SESSION_NOT_FOUND');
-  if (session.host_user_id !== hostUserId) throw new Error('NOT_HOST');
+  // A player-created game always has a host_user_id (the player who
+  // created it via CategorySelectPage, which creates then immediately
+  // starts it) — only that player may start it. A school-hosted game
+  // (created via the admin panel's "Create Game") has no single host —
+  // host_user_id is NULL — so any player who has joined it may start it
+  // instead (there's no separate "teacher" account in this data model;
+  // whoever is running the session from a joined device does it).
+  const isOwner = session.host_user_id !== null && session.host_user_id === hostUserId;
+  const isSchoolGameParticipant =
+    session.host_user_id === null && session.school_id && Boolean(await findParticipant(sessionId, hostUserId));
+  if (!isOwner && !isSchoolGameParticipant) throw new Error('NOT_HOST');
   if (session.status !== 'waiting') throw new Error('ALREADY_STARTED');
 
   const participants = await getParticipants(sessionId);
