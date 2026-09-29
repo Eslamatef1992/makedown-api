@@ -400,16 +400,18 @@ async function main() {
 
   console.log('\nChecking for quizzes this school already has (so reruns don\'t duplicate)...');
   const existingQuizzes = await api('GET', '/admin/quizzes', null, SCHOOL_TOKEN);
-  const existingTitles = new Set(
+  const existingByTitle = new Map(
     (Array.isArray(existingQuizzes) ? existingQuizzes : existingQuizzes.rows || existingQuizzes.items || []).map(
-      (q) => q.titleEn || q.title_en
+      (q) => [q.titleEn || q.title_en, q.id]
     )
   );
 
   let totalQuestions = 0;
+  const quizIdsForSession = [];
   for (const quizDef of QUIZZES) {
-    if (existingTitles.has(quizDef.titleEn)) {
+    if (existingByTitle.has(quizDef.titleEn)) {
       console.log(`\nSkipping "${quizDef.titleEn}" — a quiz with this title already exists for this school.`);
+      quizIdsForSession.push(existingByTitle.get(quizDef.titleEn));
       continue;
     }
     console.log(`\nCreating quiz "${quizDef.titleEn}"...`);
@@ -419,6 +421,7 @@ async function main() {
       isActive: true,
     }, SCHOOL_TOKEN);
     console.log(`  created quiz id ${quiz.id}`);
+    quizIdsForSession.push(quiz.id);
 
     let sortOrder = 0;
     for (const q of quizDef.questions) {
@@ -439,8 +442,40 @@ async function main() {
     console.log(`  added ${quizDef.questions.length} questions`);
   }
 
-  console.log(`\nDone — school "${SCHOOL.nameEn}" (id ${school.id}) now has ${QUIZZES.length} quizzes and ${totalQuestions} questions.`);
-  console.log(`School login: ${SCHOOL.contactEmail} / ${process.env.SCHOOL_PASSWORD || SCHOOL.password}`);
+  console.log(`\nDone — school "${SCHOOL.nameEn}" (id ${school.id}) now has ${QUIZZES.length} quizzes and ${totalQuestions} new questions added this run.`);
+
+  // Bundle all 5 quizzes onto one live game session so students can
+  // actually join and play them (a "Create Game" in the admin panel) —
+  // a school token can only create team-mode sessions, so this gives it
+  // two teams. Skip if a session with this exact title already exists,
+  // so reruns don't spawn duplicates.
+  const SESSION_TITLE_EN = 'Marketing Club Trivia Night';
+  const SESSION_TITLE_AR = 'ليلة مسابقات نادي التسويق';
+  console.log(`\nChecking for an existing "${SESSION_TITLE_EN}" game session...`);
+  const existingSessions = await api('GET', '/admin/game-sessions', null, SCHOOL_TOKEN);
+  const sessionRows = Array.isArray(existingSessions) ? existingSessions : existingSessions.rows || existingSessions.items || [];
+  const existingSession = sessionRows.find((s) => (s.title || s.title_en) === SESSION_TITLE_EN);
+
+  if (existingSession) {
+    console.log(`  a game session called "${SESSION_TITLE_EN}" already exists (id ${existingSession.id}, join code ${existingSession.join_code || existingSession.joinCode}) — not creating another.`);
+  } else {
+    console.log('  creating a live team-mode game session bundling all 5 quizzes...');
+    const session = await api('POST', '/admin/game-sessions', {
+      mode: 'team',
+      quizIds: quizIdsForSession,
+      title: SESSION_TITLE_EN,
+      titleAr: SESSION_TITLE_AR,
+      audience: 'mixed',
+      team1Name: 'Team A',
+      team1Capacity: 15,
+      team2Name: 'Team B',
+      team2Capacity: 15,
+    }, SCHOOL_TOKEN);
+    console.log(`  created game session id ${session.id}, join code ${session.join_code || session.joinCode}`);
+    console.log(`  it should now show up on the school's public "Games" page.`);
+  }
+
+  console.log(`\nSchool login: ${SCHOOL.contactEmail} / ${process.env.SCHOOL_PASSWORD || SCHOOL.password}`);
 }
 
 main().catch((err) => {
