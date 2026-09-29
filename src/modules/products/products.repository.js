@@ -29,9 +29,11 @@ const SORT_COLUMNS = {
 // so "popular" is defined as bought by the most distinct customers/orders,
 // while "best_seller" is the most total units sold — two genuinely
 // different rankings from the same order_items data, not aliases of the
-// same thing.
+// same thing. `bestseller` (no underscore) is accepted as an alias since
+// that's the exact string the mobile team's spec uses.
 const SALES_SORTS = {
   best_seller: 'unitsSold DESC',
+  bestseller: 'unitsSold DESC',
   popular: 'orderCount DESC',
 };
 
@@ -67,6 +69,18 @@ async function listActive({ page = 1, pageSize = 20, search = '', sort = '' } = 
        WHERE ${whereSql}
        GROUP BY p.id
        ORDER BY ${orderBy}, p.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+  } else if (sort === 'offers') {
+    // Products currently on an active discount first (same "offer_price
+    // wins" rule checkout/the product page use — a null/zero/non-discount
+    // offer_price doesn't count), newest first within each group. This is
+    // an ordering like every other sort value, not a filter — products
+    // with no offer still appear, just after the discounted ones.
+    [rows] = await pool.query(
+      `SELECT p.* FROM products p WHERE ${whereSql}
+       ORDER BY (p.offer_price IS NOT NULL AND p.offer_price > 0 AND p.offer_price < p.base_price) DESC, p.created_at DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

@@ -17,13 +17,17 @@ const controller = require('./products.controller');
  *         description: Matches against name (en/ar) and slug
  *       - in: query
  *         name: sort
- *         schema: { type: string, enum: [newest, new_arrival, oldest, price_asc, price_desc, name_asc, name_desc, best_seller, popular], default: newest }
+ *         schema: { type: string, enum: [newest, new_arrival, oldest, price_asc, price_desc, name_asc, name_desc, best_seller, bestseller, popular, offers], default: newest }
  *         description: >
- *           new_arrival is the same as newest (no separate "new" flag exists).
- *           best_seller and popular are both computed from paid orders —
- *           best_seller ranks by total units sold, popular by number of
- *           distinct orders (there's no page-view/wishlist tracking to base
- *           "popular" on instead).
+ *           new_arrival is the same as newest (no separate "new" flag
+ *           exists). best_seller/bestseller (both accepted, same ranking)
+ *           and popular are computed from paid orders — best_seller ranks
+ *           by total units sold, popular by number of distinct orders
+ *           (there's no page-view/wishlist tracking to base "popular" on
+ *           instead). offers orders active-discount products first (same
+ *           "offer_price wins" rule as checkout/product detail), then
+ *           newest — it's an ordering, not a filter, so non-offer products
+ *           still appear afterward.
  *       - in: query
  *         name: page
  *         schema: { type: integer }
