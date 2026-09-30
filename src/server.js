@@ -5,6 +5,7 @@ const app = require('./app');
 const env = require('./config/env');
 const { checkConnection } = require('./config/db');
 const { verifyAccessToken } = require('./utils/tokens');
+const playRepo = require('./modules/play/play.repository');
 
 const server = http.createServer(app);
 
@@ -31,9 +32,21 @@ io.on('connection', (socket) => {
   });
 
   // Live game: clients join a room per game session so play.controller.js can
-  // broadcast board/turn/score updates to everyone watching that game.
-  socket.on('game:join', (sessionId) => {
-    if (sessionId) socket.join(`game:${sessionId}`);
+  // broadcast board/turn/score updates to everyone watching that game. On
+  // join we also send the current state directly to this one socket (not
+  // the room) — otherwise a client that (re)connects gets nothing until the
+  // next unrelated change happens to broadcast game:state, which is a real
+  // gap on reconnect: any events sent while it was disconnected are lost.
+  socket.on('game:join', async (sessionId) => {
+    if (!sessionId) return;
+    socket.join(`game:${sessionId}`);
+    try {
+      const detail = await playRepo.findSessionDetail(sessionId);
+      if (detail) socket.emit('game:state', detail);
+    } catch (err) {
+      // Bad/unknown sessionId — the client just won't get an initial
+      // snapshot; later broadcasts to the room still work as normal.
+    }
   });
   socket.on('game:leave', (sessionId) => {
     if (sessionId) socket.leave(`game:${sessionId}`);

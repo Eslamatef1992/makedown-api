@@ -359,6 +359,8 @@ CREATE TABLE IF NOT EXISTS game_sessions (
   current_question_id     BIGINT UNSIGNED NULL,
   turn_started_at         DATETIME NULL,
   turn_ends_at            DATETIME NULL,
+  timer_paused_at         DATETIME NULL,
+  timer_remaining_seconds INT UNSIGNED NULL,
   current_scan_token      VARCHAR(64) NULL,
   current_scan_scanned_at DATETIME NULL,
   started_at              DATETIME NULL,
@@ -471,12 +473,18 @@ CREATE TABLE IF NOT EXISTS game_invites (
 CREATE TABLE IF NOT EXISTS game_score_adjustments (
   id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   session_id          BIGINT UNSIGNED NOT NULL,
-  participant_id      BIGINT UNSIGNED NOT NULL,
+  -- Exactly one of participant_id / team_id is set: a per-participant
+  -- adjustment (solo mode, or team mode targeting one player), or a
+  -- direct team-level adjustment (team mode via teamId, no single
+  -- participant implicated) requested straight from the scoreboard.
+  participant_id      BIGINT UNSIGNED NULL,
+  team_id             BIGINT UNSIGNED NULL,
   delta               INT NOT NULL,
   adjusted_by_user_id BIGINT UNSIGNED NULL,
   created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_gsa_session FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
   CONSTRAINT fk_gsa_participant FOREIGN KEY (participant_id) REFERENCES game_participants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gsa_team FOREIGN KEY (team_id) REFERENCES game_teams(id) ON DELETE CASCADE,
   CONSTRAINT fk_gsa_admin FOREIGN KEY (adjusted_by_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -594,13 +594,25 @@ async function advanceTurn(sessionId) {
 // because the action is still always recorded/scored against the real
 // current-turn participant (activeParticipantId), never the caller's own
 // id, exactly like the single-host model above.
+// Shared by every turn/scoring action that should be authorized for either
+// the session's real host (host_user_id), or, for a school-hosted session
+// (no host account — a single shared classroom device plays for everyone
+// instead), any already-joined participant of that same session. Centralizing
+// this in one place keeps every caller's "host-or-school-participant" check
+// consistent — resolveQrAnswer used to skip the school fallback entirely,
+// which meant no one could ever grade a QR question in a school game.
+function isSessionHostEquivalent(session, participant, userId) {
+  if (session.host_user_id === userId) return true;
+  if (session.school_id && participant) return true;
+  return false;
+}
+
 async function resolveActingParticipant(session, participant, userId) {
   const turnOrder = parseJsonColumn(session.turn_order_json, []);
   const activeParticipantId = turnOrder[session.current_turn_index];
   if (!activeParticipantId) throw new Error('NOT_YOUR_TURN');
   if (participant && participant.id === activeParticipantId) return activeParticipantId;
-  if (session.host_user_id === userId) return activeParticipantId;
-  if (session.school_id && participant) return activeParticipantId;
+  if (isSessionHostEquivalent(session, participant, userId)) return activeParticipantId;
   throw new Error('NOT_YOUR_TURN');
 }
 
@@ -679,6 +691,70 @@ async function revealQuestion(sessionId, userId) {
     [timeLimit, sessionId]
   );
   return { question: sanitizeQuestion(question), timeLimitSeconds: timeLimit };
+}
+
+// ---------------------------------------------------------------------------
+// Server-side timer pause/resume/reset. The mobile app's pause/reset
+// buttons used to be purely client-side while the server kept enforcing
+// turn_ends_at underneath, so answering after a client-side pause could
+// still come back 409 TIME_EXPIRED. These give the host (or, for a school
+// session, any joined participant — see isSessionHostEquivalent) a real
+// server-side pause: submitAnswer's TIME_EXPIRED check above already skips
+// itself while timer_paused_at is set. play.controller.js additionally
+// cancels/reschedules its own in-memory auto-expiry timeout to match.
+// ---------------------------------------------------------------------------
+
+async function pauseTimer(sessionId, userId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
+  const participant = await findParticipant(sessionId, userId);
+  if (!isSessionHostEquivalent(session, participant, userId)) throw new Error('NOT_HOST');
+  if (!session.current_question_id || !session.turn_ends_at) throw new Error('NO_ACTIVE_TIMER');
+  if (session.timer_paused_at) return findSessionRaw(sessionId); // already paused, no-op
+
+  const remainingMs = new Date(session.turn_ends_at).getTime() - Date.now();
+  const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  await pool.query(
+    'UPDATE game_sessions SET timer_paused_at = NOW(), timer_remaining_seconds = ? WHERE id = ?',
+    [remainingSeconds, sessionId]
+  );
+  return findSessionRaw(sessionId);
+}
+
+async function resumeTimer(sessionId, userId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
+  const participant = await findParticipant(sessionId, userId);
+  if (!isSessionHostEquivalent(session, participant, userId)) throw new Error('NOT_HOST');
+  if (!session.timer_paused_at) throw new Error('TIMER_NOT_PAUSED');
+
+  const remainingSeconds = session.timer_remaining_seconds ?? DEFAULT_TIME_LIMIT;
+  await pool.query(
+    `UPDATE game_sessions SET timer_paused_at = NULL, timer_remaining_seconds = NULL,
+     turn_ends_at = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?`,
+    [remainingSeconds, sessionId]
+  );
+  return { session: await findSessionRaw(sessionId), timeLimitSeconds: remainingSeconds };
+}
+
+// Unlike resume (which restores whatever time was left when paused), reset
+// puts the full per-question time limit back on the clock — this is the
+// "reset" half of the app's pause/reset buttons.
+async function resetTimer(sessionId, userId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
+  const participant = await findParticipant(sessionId, userId);
+  if (!isSessionHostEquivalent(session, participant, userId)) throw new Error('NOT_HOST');
+  if (!session.current_question_id) throw new Error('NO_ACTIVE_TIMER');
+
+  const question = await findQuestionRaw(session.current_question_id);
+  const timeLimit = question?.time_limit_seconds || DEFAULT_TIME_LIMIT;
+  await pool.query(
+    `UPDATE game_sessions SET timer_paused_at = NULL, timer_remaining_seconds = NULL,
+     turn_started_at = NOW(), turn_ends_at = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?`,
+    [timeLimit, sessionId]
+  );
+  return { session: await findSessionRaw(sessionId), timeLimitSeconds: timeLimit };
 }
 
 // Like advanceTurn, but keeps the same tile/question active and just hands
@@ -817,7 +893,14 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
     throw new Error('QUESTION_NOT_ACTIVE');
   }
   if (session.current_scan_token && !session.current_scan_scanned_at) throw new Error('AWAITING_SCAN');
-  if (session.turn_ends_at && new Date(session.turn_ends_at).getTime() < Date.now()) throw new Error('TIME_EXPIRED');
+  // While the host has paused the timer (timer_paused_at set), don't treat
+  // the frozen turn_ends_at as expired — see pauseTimer/resumeTimer below.
+  if (
+    session.turn_ends_at && !session.timer_paused_at
+    && new Date(session.turn_ends_at).getTime() < Date.now()
+  ) {
+    throw new Error('TIME_EXPIRED');
+  }
 
   const participant = await findParticipant(sessionId, userId);
   const activeParticipantId = await resolveActingParticipant(session, participant, userId);
@@ -834,16 +917,30 @@ async function submitAnswer(sessionId, userId, questionId, selectedOptionIndex, 
 // — unlike resolveTurn/advanceSubTurn there is no per-team two-turn
 // handoff here, since a host judgment call doesn't need a second team's turn
 // at the same tile.
-async function resolveQrAnswer(sessionId, userId, questionId, winnerParticipantId) {
+async function resolveQrAnswer(sessionId, userId, questionId, winnerParticipantId, winnerTeamId) {
   const session = await findSessionRaw(sessionId);
   if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
   if (!session.current_question_id || session.current_question_id !== Number(questionId)) {
     throw new Error('QUESTION_NOT_ACTIVE');
   }
-  if (session.host_user_id !== userId) throw new Error('NOT_HOST');
+  const caller = await findParticipant(sessionId, userId);
+  if (!isSessionHostEquivalent(session, caller, userId)) throw new Error('NOT_HOST');
 
   const question = await findQuestionRaw(questionId);
   if (!question || question.question_type !== 'qr') throw new Error('QUESTION_NOT_ACTIVE');
+
+  // A caller may name the winner either as a specific participant, or (team
+  // mode) as the team itself — resolve a team to one of its already-joined
+  // participants, since scoring/game_answers are still recorded per
+  // participant even though the board displays the team's score.
+  if (!winnerParticipantId && winnerTeamId) {
+    const [teamParticipants] = await pool.query(
+      'SELECT id FROM game_participants WHERE session_id = ? AND team_id = ? AND left_at IS NULL ORDER BY id ASC LIMIT 1',
+      [sessionId, winnerTeamId]
+    );
+    if (!teamParticipants.length) throw new Error('TEAM_HAS_NO_PARTICIPANTS');
+    winnerParticipantId = teamParticipants[0].id;
+  }
 
   let participant = null;
   if (winnerParticipantId) {
@@ -875,6 +972,32 @@ async function resolveQrAnswer(sessionId, userId, questionId, winnerParticipantI
     winnerParticipantId: winnerParticipantId || null,
     winnerName: participant?.team_name || participant?.full_name || null,
     points: winnerParticipantId ? question.points : 0,
+  };
+}
+
+// Pulled by the host (or school-session participant) right after a QR
+// question is scanned, so they can see the correct answer before judging
+// who won. Always the session's *current* question — there's never a
+// reason to ask about any other one, so the caller doesn't need to know
+// its id. Deliberately NOT part of any game:* broadcast — those go to the
+// whole game:<sessionId> room, which would leak the answer to every player,
+// not just the host.
+async function getQrAnswerKey(sessionId, userId) {
+  const session = await findSessionRaw(sessionId);
+  if (!session || session.status !== 'active') throw new Error('SESSION_NOT_ACTIVE');
+  if (!session.current_question_id) throw new Error('QUESTION_NOT_ACTIVE');
+  const caller = await findParticipant(sessionId, userId);
+  if (!isSessionHostEquivalent(session, caller, userId)) throw new Error('NOT_HOST');
+
+  const question = await findQuestionRaw(session.current_question_id);
+  if (!question || question.question_type !== 'qr') throw new Error('QUESTION_NOT_ACTIVE');
+
+  const optionsEn = parseJsonColumn(question.options_json_en, []);
+  const optionsAr = parseJsonColumn(question.options_json_ar, []);
+  return {
+    correctOptionIndex: question.correct_option_index,
+    correctOptionTextEn: optionsEn[question.correct_option_index] ?? null,
+    correctOptionTextAr: optionsAr[question.correct_option_index] ?? null,
   };
 }
 
@@ -1067,24 +1190,37 @@ async function matchRandom(sessionId, userId) {
   return { matchedSessionId: sessionId, createdNew: true };
 }
 
-async function adjustScore(sessionId, hostUserId, participantId, delta, reason) {
+// participantId and teamId are alternatives, not both required — teamId is
+// the better fit for team mode (the board shows team scores, not a single
+// participant's), and skips having to guess which participant to attribute
+// the change to. When both happen to be given, participantId wins, since
+// it's more specific.
+async function adjustScore(sessionId, hostUserId, { participantId, teamId, delta, reason } = {}) {
   const session = await findSessionRaw(sessionId);
   if (!session) throw new Error('SESSION_NOT_FOUND');
-
-  const participant = await findParticipantById(participantId);
-  if (!participant || participant.session_id !== Number(sessionId)) throw new Error('PARTICIPANT_NOT_FOUND');
 
   // Same reasoning as resolveActingParticipant above: a school session has
   // no host account, so let any already-joined participant of the session
   // make the correction, instead of requiring a host_user_id that can
   // never match for these sessions.
-  const isHost = session.host_user_id === hostUserId;
-  let isSchoolParticipant = false;
-  if (!isHost && session.school_id) {
-    const caller = await findParticipant(sessionId, hostUserId);
-    isSchoolParticipant = Boolean(caller);
+  const caller = session.school_id ? await findParticipant(sessionId, hostUserId) : null;
+  if (!isSessionHostEquivalent(session, caller, hostUserId)) throw new Error('NOT_HOST');
+
+  if (!participantId && teamId) {
+    const [teamRows] = await pool.query('SELECT id, name, score FROM game_teams WHERE id = ? AND session_id = ?', [teamId, sessionId]);
+    if (!teamRows.length) throw new Error('TEAM_NOT_FOUND');
+
+    await pool.query('UPDATE game_teams SET score = GREATEST(0, score + ?) WHERE id = ?', [delta, teamId]);
+    await pool.query(
+      'INSERT INTO game_score_adjustments (session_id, team_id, delta, adjusted_by_user_id) VALUES (?, ?, ?, ?)',
+      [sessionId, teamId, delta, hostUserId]
+    );
+    const [[team]] = await pool.query('SELECT id, name, score FROM game_teams WHERE id = ?', [teamId]);
+    return { teamId, team };
   }
-  if (!isHost && !isSchoolParticipant) throw new Error('NOT_HOST');
+
+  const participant = await findParticipantById(participantId);
+  if (!participant || participant.session_id !== Number(sessionId)) throw new Error('PARTICIPANT_NOT_FOUND');
 
   await pool.query('UPDATE game_participants SET score = GREATEST(0, score + ?) WHERE id = ?', [delta, participantId]);
   if (participant.team_id) {
@@ -1116,6 +1252,10 @@ module.exports = {
   revealQuestion,
   submitAnswer,
   resolveQrAnswer,
+  getQrAnswerKey,
+  pauseTimer,
+  resumeTimer,
+  resetTimer,
   expireTurn,
   useFiftyFifty,
   useSkip,
@@ -1128,4 +1268,5 @@ module.exports = {
   listPublicSessions,
   matchRandom,
   adjustScore,
+  isSessionHostEquivalent,
 };

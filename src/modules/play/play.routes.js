@@ -343,11 +343,15 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *     responses:
  *       200:
  *         description: >
- *           Whether the pick was right. In team mode, when a first team just
- *           answers, the fuller game:answer_result / game:next_team_turn
- *           Socket.io events (not this HTTP response) carry whether the tile
- *           is fully settled yet.
- *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { isCorrect: true, correctOptionIndex: 0 } } } }
+ *           Whether the pick was right. roundComplete/nextTurnParticipantId
+ *           mirror the game:answer_result / game:next_team_turn / game:turn_changed
+ *           Socket.io events, so the app can tell whether the second team
+ *           gets a turn even if the socket connection dropped. In team mode,
+ *           roundComplete is false when the same tile just got handed to the
+ *           other team (nextTurnParticipantId is that team's participant);
+ *           true once the tile is fully settled (nextTurnParticipantId is
+ *           whoever is up next on the board, or null if the game just ended).
+ *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { isCorrect: true, correctOptionIndex: 0, roundComplete: true, nextTurnParticipantId: 813 } } } }
  *       409:
  *         description: Awaiting a qr/audio reveal first, time already expired, or no active question
  *         content:
@@ -359,7 +363,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  * /play/sessions/{id}/qr-answer:
  *   post:
  *     tags: [Play]
- *     summary: "Host-only: grade a QR-gated question — pick which team (participantId) answered correctly, or none, settling the tile"
+ *     summary: "Host (or, for a school game, any joined participant): grade a QR-gated question — pick which participant or team answered correctly, or none, settling the tile"
  *     security: [{ bearerAuth: [] }]
  *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
  *     requestBody:
@@ -371,10 +375,60 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *             required: [questionId]
  *             properties:
  *               questionId: { type: integer, example: 306 }
- *               winnerParticipantId: { type: integer, nullable: true, example: 812, description: "Omit or null for \"No one answered\"" }
+ *               winnerParticipantId: { type: integer, nullable: true, example: 812, description: "Omit or null for \"No one answered\". Preferred when you already know the exact participant." }
+ *               winnerTeamId: { type: integer, nullable: true, example: 41, description: "Team-mode alternative to winnerParticipantId — resolves to one of that team's already-joined participants server-side. Ignored if winnerParticipantId is also given." }
  *     responses:
- *       200: { description: Tile settled, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { winnerParticipantId: 812, points: 400 } } } } }
- *       403: { description: Caller isn't this game's host, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "not host" } } } }
+ *       200: { description: Tile settled, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { winnerParticipantId: 812, points: 400, roundComplete: true, nextTurnParticipantId: 813 } } } } }
+ *       403: { description: Caller is neither this game's host nor (for a school game) a joined participant, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "not host" } } } }
+ *       400: { description: winnerTeamId given but that team has no joined participants, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "team has no participants" } } } }
+ * /play/sessions/{id}/qr-answer-key:
+ *   get:
+ *     tags: [Play]
+ *     summary: "Host (or, for a school game, any joined participant): see the correct answer for the session's current QR question, before grading it via qr-answer"
+ *     description: >
+ *       Only ever returns the *current* question's answer — there's no
+ *       questionId parameter, since asking about any other question would
+ *       never be needed. Not part of any Socket.io broadcast on purpose:
+ *       game:question_revealed goes to every player in the room, so putting
+ *       the answer there would leak it to everyone, not just the host.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200: { description: Correct answer for the current QR question, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { correctOptionIndex: 2, correctOptionTextEn: Kyoto, correctOptionTextAr: "كيوتو" } } } } }
+ *       409: { description: No active question, or it isn't a QR question, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "question not active" } } } }
+ * /play/sessions/{id}/timer/pause:
+ *   post:
+ *     tags: [Play]
+ *     summary: "Host (or, for a school game, any joined participant): pause the active question's countdown server-side"
+ *     description: >
+ *       Fixes the mobile app's pause button only working on-device: while
+ *       paused, the server itself stops enforcing turn_ends_at, so /answer
+ *       no longer returns 409 "time expired" for an answer submitted after
+ *       the on-device pause. Calling this again while already paused is a
+ *       harmless no-op.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200: { description: Timer paused, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { paused: true, timerRemainingSeconds: 12 } } } } }
+ *       409: { description: No active question/timer to pause, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "no active timer" } } } }
+ * /play/sessions/{id}/timer/resume:
+ *   post:
+ *     tags: [Play]
+ *     summary: "Host (or, for a school game, any joined participant): resume a paused timer with whatever time was left when it was paused"
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200: { description: Timer resumed, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { paused: false, timeLimitSeconds: 12 } } } } }
+ *       409: { description: Timer isn't currently paused, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "timer not paused" } } } }
+ * /play/sessions/{id}/timer/reset:
+ *   post:
+ *     tags: [Play]
+ *     summary: "Host (or, for a school game, any joined participant): reset the active question's countdown back to its full time limit"
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200: { description: Timer reset, content: { application/json: { schema: { $ref: '#/components/schemas/ApiSuccess' }, example: { success: true, message: OK, data: { paused: false, timeLimitSeconds: 20 } } } } }
+ *       409: { description: No active question to reset the timer for, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "no active timer" } } } }
  * /play/sessions/{id}/lifelines/fifty-fifty:
  *   post:
  *     tags: [Play]
@@ -420,9 +474,37 @@ const requireAuth = require('../../middlewares/auth.middleware');
  * /play/sessions/{id}/score-adjustment:
  *   post:
  *     tags: [Play]
- *     summary: Host manually adjusts a participant's score (+/- controls on the board)
+ *     summary: "Host (or, for a school game, any joined participant): manually adjust a participant's or a team's score (+/- controls on the board)"
+ *     description: >
+ *       Accepts either participantId (adjusts that participant, and their
+ *       team's score alongside it) or teamId (team mode: adjusts the team's
+ *       score directly, without needing to know which participant to
+ *       attribute it to). Give exactly one; if both are given, participantId
+ *       wins.
  *     security: [{ bearerAuth: [] }]
- *     responses: { 200: { description: Adjusted } }
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [delta]
+ *             properties:
+ *               participantId: { type: integer, nullable: true, example: 812 }
+ *               teamId: { type: integer, nullable: true, example: 41, description: "Team-mode alternative to participantId" }
+ *               delta: { type: integer, example: 100, description: "Positive or negative; the resulting score is floored at 0" }
+ *               reason: { type: string, nullable: true, example: "Bonus for creative answer" }
+ *     responses:
+ *       200:
+ *         description: The updated participant (participantId given) or team (teamId given)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *             examples:
+ *               participant: { value: { success: true, message: OK, data: { id: 812, full_name: "Sara", score: 300 } } }
+ *               team: { value: { success: true, message: OK, data: { teamId: 41, team: { id: 41, name: "Team A", score: 300 } } } }
+ *       404: { description: Team/participant not found, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "team not found" } } } }
  */
 
 // Public — no requireAuth: a QR scan may happen on a second device that
@@ -448,6 +530,11 @@ router.post('/sessions/:id/pick-tile', controller.pickTile);
 router.post('/sessions/:id/reveal', controller.revealQuestion);
 router.post('/sessions/:id/answer', controller.submitAnswer);
 router.post('/sessions/:id/qr-answer', controller.qrAnswer);
+router.get('/sessions/:id/qr-answer-key', controller.getQrAnswerKey);
+
+router.post('/sessions/:id/timer/pause', controller.pauseTimer);
+router.post('/sessions/:id/timer/resume', controller.resumeTimer);
+router.post('/sessions/:id/timer/reset', controller.resetTimer);
 
 router.post('/sessions/:id/lifelines/fifty-fifty', controller.fiftyFifty);
 router.post('/sessions/:id/lifelines/skip', controller.skip);

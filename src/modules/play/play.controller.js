@@ -111,7 +111,9 @@ async function broadcastTurnResult(io, sessionId, participantId, result) {
     if (detail.currentTurnParticipantId) {
       io.to(`game:${sessionId}`).emit('game:turn_changed', { sessionId: Number(sessionId), currentTurnParticipantId: detail.currentTurnParticipantId });
     }
-    return;
+    // Same tile, other team's turn: roundComplete is false and the "next
+    // turn" is whoever the board now says is up (the other team).
+    return { roundComplete: false, nextTurnParticipantId: detail.currentTurnParticipantId || null };
   }
 
   io.to(`game:${sessionId}`).emit('game:state', detail);
@@ -120,6 +122,15 @@ async function broadcastTurnResult(io, sessionId, participantId, result) {
   } else if (detail.currentTurnParticipantId) {
     io.to(`game:${sessionId}`).emit('game:turn_changed', { sessionId: Number(sessionId), currentTurnParticipantId: detail.currentTurnParticipantId });
   }
+  // Tile settled: nextTurnParticipantId is null once the game has ended,
+  // otherwise whoever the board now says is up next. Callers (submitAnswer,
+  // qrAnswer, skip) surface both fields in their HTTP response too, so the
+  // app can tell whether the second team gets a turn even if the socket
+  // connection drops (see game:next_team_turn / game:turn_changed above).
+  return {
+    roundComplete: true,
+    nextTurnParticipantId: detail.status === 'finished' ? null : (detail.currentTurnParticipantId || null),
+  };
 }
 
 const ERROR_STATUS = {
@@ -149,6 +160,10 @@ const ERROR_STATUS = {
   INVITE_NOT_FOUND: 404,
   INVITE_CLOSED: 409,
   PARTICIPANT_NOT_FOUND: 404,
+  TEAM_NOT_FOUND: 404,
+  TEAM_HAS_NO_PARTICIPANTS: 400,
+  NO_ACTIVE_TIMER: 409,
+  TIMER_NOT_PAUSED: 409,
 };
 
 function mapError(err) {
@@ -450,13 +465,18 @@ const submitAnswer = asyncHandler(async (req, res) => {
   // result.participantId is whoever's turn it actually was (a teammate or
   // the other team, not necessarily the logged-in host who tapped Next on
   // their behalf) — broadcast that, not the caller's own participant row.
-  await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  const broadcast = await broadcastTurnResult(io, req.params.id, result.participantId, result);
   // Team mode: the same question just got handed to the other team — arm
   // their answer window, same as picking a fresh tile would.
   if (result.roundComplete === false && !result.awaitingScan) {
     scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
   }
-  ok(res, { isCorrect: result.isCorrect, correctOptionIndex: result.correctOptionIndex });
+  ok(res, {
+    isCorrect: result.isCorrect,
+    correctOptionIndex: result.correctOptionIndex,
+    roundComplete: broadcast.roundComplete,
+    nextTurnParticipantId: broadcast.nextTurnParticipantId,
+  });
 });
 
 // QR-gated questions have no options to submit an index against — once the
@@ -472,14 +492,33 @@ const qrAnswer = asyncHandler(async (req, res) => {
       req.params.id,
       req.user.id,
       Number(req.body.questionId),
-      req.body.winnerParticipantId ? Number(req.body.winnerParticipantId) : null
+      req.body.winnerParticipantId ? Number(req.body.winnerParticipantId) : null,
+      req.body.winnerTeamId ? Number(req.body.winnerTeamId) : null
     ));
   } catch (err) {
     throw mapError(err);
   }
   const io = req.app.get('io');
-  await broadcastTurnResult(io, req.params.id, result.participantId, result);
-  ok(res, { winnerParticipantId: result.winnerParticipantId, points: result.points });
+  const broadcast = await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  ok(res, {
+    winnerParticipantId: result.winnerParticipantId,
+    points: result.points,
+    roundComplete: broadcast.roundComplete,
+    nextTurnParticipantId: broadcast.nextTurnParticipantId,
+  });
+});
+
+// Pulled by the host (or school-session participant) right after a QR
+// question is scanned, so they can see the correct answer before judging
+// who won via qr-answer — never broadcast (see repo.getQrAnswerKey).
+const getQrAnswerKey = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await repo.getQrAnswerKey(req.params.id, req.user.id);
+  } catch (err) {
+    throw mapError(err);
+  }
+  ok(res, result);
 });
 
 // ---------------------------------------------------------------------------
@@ -507,11 +546,15 @@ const skip = asyncHandler(async (req, res) => {
     throw mapError(err);
   }
   const io = req.app.get('io');
-  await broadcastTurnResult(io, req.params.id, result.participantId, result);
+  const broadcast = await broadcastTurnResult(io, req.params.id, result.participantId, result);
   if (result.roundComplete === false && !result.awaitingScan) {
     scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
   }
-  ok(res, { skipped: true });
+  ok(res, {
+    skipped: true,
+    roundComplete: broadcast.roundComplete,
+    nextTurnParticipantId: broadcast.nextTurnParticipantId,
+  });
 });
 
 const phoneAFriend = asyncHandler(async (req, res) => {
@@ -588,16 +631,86 @@ const respondInvite = asyncHandler(async (req, res) => {
 // Host controls
 // ---------------------------------------------------------------------------
 
+// Accepts either participantId (unchanged) or teamId — team mode's board
+// shows team scores, so being able to target the team directly means the
+// caller doesn't have to first figure out which participant to attribute
+// the change to.
 const adjustScore = asyncHandler(async (req, res) => {
-  let participant;
+  const participantId = req.body.participantId != null ? Number(req.body.participantId) : null;
+  const teamId = req.body.teamId != null ? Number(req.body.teamId) : null;
+  let result;
   try {
-    participant = await repo.adjustScore(req.params.id, req.user.id, Number(req.body.participantId), Number(req.body.delta), req.body.reason);
+    result = await repo.adjustScore(req.params.id, req.user.id, {
+      participantId, teamId, delta: Number(req.body.delta), reason: req.body.reason,
+    });
   } catch (err) {
     throw mapError(err);
   }
   const io = req.app.get('io');
-  io.to(`game:${req.params.id}`).emit('game:score_adjusted', { sessionId: Number(req.params.id), participant });
-  ok(res, participant);
+  if (result && result.team) {
+    io.to(`game:${req.params.id}`).emit('game:score_adjusted', {
+      sessionId: Number(req.params.id), teamId: result.teamId, team: result.team,
+    });
+  } else {
+    io.to(`game:${req.params.id}`).emit('game:score_adjusted', {
+      sessionId: Number(req.params.id), participant: result,
+    });
+  }
+  ok(res, result);
+});
+
+// ---------------------------------------------------------------------------
+// Server-side timer pause/resume/reset
+// ---------------------------------------------------------------------------
+
+const pauseTimer = asyncHandler(async (req, res) => {
+  await requireParticipant(req.params.id, req.user.id);
+  let session;
+  try {
+    session = await withSessionLock(req.params.id, () => repo.pauseTimer(req.params.id, req.user.id));
+  } catch (err) {
+    throw mapError(err);
+  }
+  // Cancel the in-memory auto-expiry — the server should stop treating the
+  // (now-frozen) turn_ends_at as a deadline while paused.
+  clearSessionTimer(req.params.id);
+  const io = req.app.get('io');
+  io.to(`game:${req.params.id}`).emit('game:timer_paused', {
+    sessionId: Number(req.params.id), timerRemainingSeconds: session.timer_remaining_seconds,
+  });
+  ok(res, { paused: true, timerRemainingSeconds: session.timer_remaining_seconds });
+});
+
+const resumeTimer = asyncHandler(async (req, res) => {
+  await requireParticipant(req.params.id, req.user.id);
+  let result;
+  try {
+    result = await withSessionLock(req.params.id, () => repo.resumeTimer(req.params.id, req.user.id));
+  } catch (err) {
+    throw mapError(err);
+  }
+  const io = req.app.get('io');
+  scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
+  io.to(`game:${req.params.id}`).emit('game:timer_resumed', {
+    sessionId: Number(req.params.id), timeLimitSeconds: result.timeLimitSeconds,
+  });
+  ok(res, { paused: false, timeLimitSeconds: result.timeLimitSeconds });
+});
+
+const resetTimer = asyncHandler(async (req, res) => {
+  await requireParticipant(req.params.id, req.user.id);
+  let result;
+  try {
+    result = await withSessionLock(req.params.id, () => repo.resetTimer(req.params.id, req.user.id));
+  } catch (err) {
+    throw mapError(err);
+  }
+  const io = req.app.get('io');
+  scheduleExpiry(req.params.id, io, result.timeLimitSeconds * 1000);
+  io.to(`game:${req.params.id}`).emit('game:timer_reset', {
+    sessionId: Number(req.params.id), timeLimitSeconds: result.timeLimitSeconds,
+  });
+  ok(res, { paused: false, timeLimitSeconds: result.timeLimitSeconds });
 });
 
 module.exports = {
@@ -614,6 +727,7 @@ module.exports = {
   revealQuestion,
   submitAnswer,
   qrAnswer,
+  getQrAnswerKey,
   fiftyFifty,
   skip,
   phoneAFriend,
@@ -622,4 +736,7 @@ module.exports = {
   invite,
   respondInvite,
   adjustScore,
+  pauseTimer,
+  resumeTimer,
+  resetTimer,
 };
