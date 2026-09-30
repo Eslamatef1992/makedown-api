@@ -36,8 +36,20 @@ async function resolveLine(productId, variantId, quantity) {
       throw ApiError.badRequest(`"${product.name_en}" is out of stock`);
     }
     unitPrice = Number(variant.price);
-  } else if (product.stock_quantity != null && Number(product.stock_quantity) <= 0) {
-    throw ApiError.badRequest(`"${product.name_en}" is out of stock`);
+  } else {
+    // No variantId given — that's only valid for a plain product. A
+    // product that actually has variants (any rows at all, not just active
+    // ones — see productsRepo.listVariants) must have one picked
+    // explicitly, since its real price/stock live on the variant, not the
+    // product row above. Silently falling back to the base product's price
+    // here would be wrong for any such product.
+    const variants = await productsRepo.listVariants(product.id);
+    if (variants.length > 0) {
+      throw ApiError.badRequest(`"${product.name_en}" requires selecting an option (variantId) — it is not sold as a plain product`);
+    }
+    if (product.stock_quantity != null && Number(product.stock_quantity) <= 0) {
+      throw ApiError.badRequest(`"${product.name_en}" is out of stock`);
+    }
   }
 
   return { product, variant, unitPrice, quantity };

@@ -81,11 +81,17 @@ router.delete('/', optionalAuth, controller.clearCart);
  *             required: [productId]
  *             properties:
  *               productId: { type: integer }
- *               variantId: { type: integer, nullable: true }
+ *               variantId: { type: integer, nullable: true, description: "Omit entirely, or send null, for a plain product with no variants — both are treated identically. Required (as a real, positive id) when the product actually has variants; sending null/omitting it for such a product is a 400, not a silent fallback to the base product price." }
  *               quantity: { type: integer, default: 1 }
  *     responses:
  *       201: { description: Item added, content: { application/json: { schema: { $ref: '#/components/schemas/Cart' } } } }
- *       400: { description: Product/variant no longer available, or out of stock }
+ *       400:
+ *         description: Product/variant no longer available, out of stock, or variantId missing for a product that has variants
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *             examples:
+ *               variantRequired: { value: { success: false, message: "\"Classic Tee\" requires selecting an option (variantId) — it is not sold as a plain product" } }
  */
 router.post('/items', optionalAuth, validate(addItem), controller.addItem);
 
