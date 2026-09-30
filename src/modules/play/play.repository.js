@@ -186,6 +186,30 @@ async function findSessionByJoinCode(joinCode) {
   return rows[0] || null;
 }
 
+// Rows keyed by team_id (team mode's shared pool) or, for solo/random
+// sessions with no team, by participant_id — see resolveLifelineScope.
+// Grouped once per session and handed to whichever of getTeams/
+// getParticipants needs it, so a session detail/game:state read is one
+// extra query, not one per team or participant.
+async function getLifelineUsageByScope(sessionId) {
+  const [rows] = await pool.query(
+    'SELECT team_id, participant_id, lifeline_type FROM game_lifeline_usage WHERE session_id = ?',
+    [sessionId]
+  );
+  const byTeam = new Map();
+  const byParticipant = new Map();
+  for (const row of rows) {
+    if (row.team_id) {
+      if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
+      byTeam.get(row.team_id).push(row.lifeline_type);
+    } else {
+      if (!byParticipant.has(row.participant_id)) byParticipant.set(row.participant_id, []);
+      byParticipant.get(row.participant_id).push(row.lifeline_type);
+    }
+  }
+  return { byTeam, byParticipant };
+}
+
 async function getParticipants(sessionId) {
   const [rows] = await pool.query(
     `SELECT gp.*, u.full_name, u.avatar_url, gt.name AS team_name
@@ -196,15 +220,23 @@ async function getParticipants(sessionId) {
      ORDER BY gp.joined_at ASC`,
     [sessionId]
   );
+  const { byParticipant } = await getLifelineUsageByScope(sessionId);
   // Guest participants (no linked account) only have gp.guest_name — the
   // LEFT JOIN above keeps them in the list instead of silently dropping
-  // them, so fall their display name back to it here.
-  return rows.map((row) => ({ ...row, full_name: row.full_name || row.guest_name || 'Player' }));
+  // them, so fall their display name back to it here. usedLifelines is this
+  // participant's own solo-scoped usage (team-mode usage lives on the team
+  // instead — see getTeams — so this is normally empty for a team-mode row).
+  return rows.map((row) => ({
+    ...row,
+    full_name: row.full_name || row.guest_name || 'Player',
+    usedLifelines: byParticipant.get(row.id) || [],
+  }));
 }
 
 async function getTeams(sessionId) {
   const [rows] = await pool.query('SELECT * FROM game_teams WHERE session_id = ? ORDER BY id ASC', [sessionId]);
-  return rows;
+  const { byTeam } = await getLifelineUsageByScope(sessionId);
+  return rows.map((row) => ({ ...row, usedLifelines: byTeam.get(row.id) || [] }));
 }
 
 async function findParticipant(sessionId, userId) {
@@ -1023,19 +1055,36 @@ async function expireTurn(sessionId) {
 // Lifelines
 // ---------------------------------------------------------------------------
 
-async function hasUsedLifeline(sessionId, participantId, lifelineType) {
+async function hasUsedLifeline(sessionId, scopeId, lifelineType) {
   const [rows] = await pool.query(
-    'SELECT 1 FROM game_lifeline_usage WHERE session_id = ? AND participant_id = ? AND lifeline_type = ? LIMIT 1',
-    [sessionId, participantId, lifelineType]
+    'SELECT 1 FROM game_lifeline_usage WHERE session_id = ? AND scope_id = ? AND lifeline_type = ? LIMIT 1',
+    [sessionId, scopeId, lifelineType]
   );
   return rows.length > 0;
 }
 
-async function markLifelineUsed(sessionId, participantId, lifelineType, questionId) {
+async function markLifelineUsed(sessionId, participantId, teamId, lifelineType, questionId) {
   await pool.query(
-    'INSERT INTO game_lifeline_usage (session_id, participant_id, lifeline_type, question_id) VALUES (?, ?, ?, ?)',
-    [sessionId, participantId, lifelineType, questionId]
+    'INSERT INTO game_lifeline_usage (session_id, participant_id, team_id, lifeline_type, question_id) VALUES (?, ?, ?, ?, ?)',
+    [sessionId, participantId, teamId, lifelineType, questionId]
   );
+}
+
+// Team mode: lifelines are a shared pool of 3 for the WHOLE team, not 3 per
+// individual player — otherwise a team with more than one named player would
+// effectively get 3x the lifelines, and (in a local pass-and-play game
+// where the host acts on behalf of a placeholder participant on the other
+// team) one teammate's use wouldn't block another's. So the "once per game"
+// key is scoped to the *active* participant's team_id when there is one,
+// falling back to the participant itself for solo/random sessions. This is
+// looked up from the active participant's own row — same reasoning
+// resolveTurn/resolveQrAnswer already use for scoring — never from the
+// caller's own participant row, since a host can be acting on behalf of a
+// different participant/team than themselves.
+async function resolveLifelineScope(session, activeParticipantId) {
+  const activeParticipant = await findParticipantById(activeParticipantId);
+  const teamId = session.mode === 'team' ? activeParticipant.team_id || null : null;
+  return { teamId, scopeId: teamId || activeParticipantId };
 }
 
 async function useFiftyFifty(sessionId, userId, questionId) {
@@ -1043,14 +1092,15 @@ async function useFiftyFifty(sessionId, userId, questionId) {
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
   const activeParticipantId = await resolveActingParticipant(session, participant, userId);
-  if (await hasUsedLifeline(sessionId, activeParticipantId, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
+  const { teamId, scopeId } = await resolveLifelineScope(session, activeParticipantId);
+  if (await hasUsedLifeline(sessionId, scopeId, 'fifty_fifty')) throw new Error('LIFELINE_ALREADY_USED');
 
   const question = await findQuestionRaw(questionId);
   const options = parseJsonColumn(question.options_json_en, []);
   const wrongIndices = options.map((_, i) => i).filter((i) => i !== question.correct_option_index);
   const hide = shuffle(wrongIndices).slice(0, Math.max(0, options.length - 2));
 
-  await markLifelineUsed(sessionId, activeParticipantId, 'fifty_fifty', questionId);
+  await markLifelineUsed(sessionId, activeParticipantId, teamId, 'fifty_fifty', questionId);
   return { hideOptionIndexes: hide };
 }
 
@@ -1059,9 +1109,10 @@ async function useSkip(sessionId, userId, questionId) {
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
   const activeParticipantId = await resolveActingParticipant(session, participant, userId);
-  if (await hasUsedLifeline(sessionId, activeParticipantId, 'skip')) throw new Error('LIFELINE_ALREADY_USED');
+  const { teamId, scopeId } = await resolveLifelineScope(session, activeParticipantId);
+  if (await hasUsedLifeline(sessionId, scopeId, 'skip')) throw new Error('LIFELINE_ALREADY_USED');
 
-  await markLifelineUsed(sessionId, activeParticipantId, 'skip', questionId);
+  await markLifelineUsed(sessionId, activeParticipantId, teamId, 'skip', questionId);
   return resolveTurn(sessionId, { participantId: activeParticipantId, selectedOptionIndex: null });
 }
 
@@ -1070,13 +1121,14 @@ async function requestPhoneAFriend(sessionId, userId, questionId, targetParticip
   if (!session || session.current_question_id !== Number(questionId)) throw new Error('QUESTION_NOT_ACTIVE');
   const participant = await findParticipant(sessionId, userId);
   const activeParticipantId = await resolveActingParticipant(session, participant, userId);
-  if (await hasUsedLifeline(sessionId, activeParticipantId, 'phone_a_friend')) throw new Error('LIFELINE_ALREADY_USED');
+  const { teamId, scopeId } = await resolveLifelineScope(session, activeParticipantId);
+  if (await hasUsedLifeline(sessionId, scopeId, 'phone_a_friend')) throw new Error('LIFELINE_ALREADY_USED');
 
   const target = await findParticipantById(targetParticipantId);
   if (!target || target.session_id !== Number(sessionId)) throw new Error('TARGET_NOT_IN_SESSION');
   if (target.id === activeParticipantId) throw new Error('CANNOT_TARGET_SELF');
 
-  await markLifelineUsed(sessionId, activeParticipantId, 'phone_a_friend', questionId);
+  await markLifelineUsed(sessionId, activeParticipantId, teamId, 'phone_a_friend', questionId);
   const [result] = await pool.query(
     `INSERT INTO game_lifeline_requests (session_id, requester_participant_id, target_participant_id, question_id)
      VALUES (?, ?, ?, ?)`,

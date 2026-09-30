@@ -42,11 +42,11 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *           type: array
  *           items:
  *             type: object
- *             properties: { id: { type: integer }, user_id: { type: integer, nullable: true }, guest_name: { type: string, nullable: true }, team_id: { type: integer, nullable: true }, score: { type: integer }, full_name: { type: string }, avatar_url: { type: string, nullable: true } }
+ *             properties: { id: { type: integer }, user_id: { type: integer, nullable: true }, guest_name: { type: string, nullable: true }, team_id: { type: integer, nullable: true }, score: { type: integer }, full_name: { type: string }, avatar_url: { type: string, nullable: true }, usedLifelines: { type: array, items: { type: string, enum: [fifty_fifty, skip, phone_a_friend] }, description: "This participant's own once-per-game lifeline usage. In team mode this is normally empty — team-mode lifelines are a shared pool tracked on teams[].usedLifelines instead, not per player." } }
  *         teams:
  *           type: array
  *           description: Empty array outside team mode.
- *           items: { type: object, properties: { id: { type: integer }, name: { type: string }, color: { type: string, nullable: true }, score: { type: integer } } }
+ *           items: { type: object, properties: { id: { type: integer }, name: { type: string }, color: { type: string, nullable: true }, score: { type: integer }, usedLifelines: { type: array, items: { type: string, enum: [fifty_fifty, skip, phone_a_friend] }, description: "Once-per-game lifelines already used by ANY player on this team — a shared pool of 3, not 3 per player. Restore this after a reconnect/restart to grey out the right lifeline buttons." } } }
  *         board:
  *           type: array
  *           description: One entry per quiz/category chosen for this session, each with its point-tile questions.
