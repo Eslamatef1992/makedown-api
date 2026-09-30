@@ -1,3 +1,4 @@
+const { validate: isUuid } = require('uuid');
 const repo = require('./cart.repository');
 const productsRepo = require('../products/products.repository');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -8,7 +9,18 @@ const ApiError = require('../../utils/ApiError');
 // optionalAuth — a logged-in user's cart is keyed off req.user, a guest's
 // off the X-Guest-Token header they were handed on a previous call here.
 async function resolveCart(req) {
-  const guestToken = req.headers['x-guest-token'] || null;
+  let guestToken = req.headers['x-guest-token'] || null;
+  // guest_token is a CHAR(36) UUID column. Seen in production: a client
+  // sending its JWT access token in this header instead of the guest UUID
+  // it was issued — that's ~150-300 chars and previously blew up as an
+  // unhandled ER_DATA_TOO_LONG (a raw 500) on every request from that
+  // client. Anything that isn't actually a UUID is treated the same as no
+  // token at all, so the request self-heals into a fresh guest cart
+  // instead of crashing — the client still needs its own fix so it stops
+  // discarding cart continuity, but this endpoint no longer 500s over it.
+  if (guestToken && !isUuid(guestToken)) {
+    guestToken = null;
+  }
   return repo.getOrCreateCart({ userId: req.user ? req.user.id : null, guestToken });
 }
 
