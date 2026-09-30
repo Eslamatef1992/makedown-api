@@ -195,6 +195,13 @@ async function requireParticipant(sessionId, userId) {
 // Categories / quizzes (board picker)
 // ---------------------------------------------------------------------------
 
+// This is the actual "games" catalog (title, description, cover image,
+// difficulty, category, real question count) — the endpoint mobile should
+// point to for anything described as "games" on a home/browse screen, this
+// includes sort=popular (see below). GET /game-categories, by contrast,
+// only returns the *category* folders (used for the website's "Popular
+// Categories" home carousel), not individual games, and its own ordering
+// is just the admin's manually-set sort_order, not real activity.
 const listPlayableQuizzes = asyncHandler(async (req, res) => {
   // `mode` ('solo' | 'team') comes from the website's Solo/Team picker —
   // only offer games the admin marked as supporting that mode (or 'both').
@@ -215,15 +222,26 @@ const listPlayableQuizzes = asyncHandler(async (req, res) => {
     where += " AND (q.supported_modes = 'both' OR q.supported_modes = ?)";
     params.push(mode);
   }
+  // sort=popular ranks by real play activity — the number of distinct game
+  // sessions that have actually answered a question from this quiz (via
+  // game_answers → quiz_questions) — not an admin-set order, the same
+  // "derived from real activity, not a manual field" idea as the Products
+  // API's own sort=popular (see products.repository.js). Default (no sort,
+  // or any other value) keeps the existing alphabetical order unchanged, so
+  // this is purely additive for every existing caller.
+  const popular = req.query.sort === 'popular';
   const [rows] = await pool.query(
     `SELECT q.id, q.title_en, q.title_ar, q.description_en, q.description_ar, q.cover_image_url,
             q.difficulty, q.category_id, q.supported_modes,
             gc.name_en AS category_name_en, gc.name_ar AS category_name_ar,
-            (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count
+            (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count,
+            (SELECT COUNT(DISTINCT ga.session_id) FROM game_answers ga
+             JOIN quiz_questions qq2 ON qq2.id = ga.question_id
+             WHERE qq2.quiz_id = q.id) AS play_count
      FROM quizzes q
      LEFT JOIN game_categories gc ON gc.id = q.category_id
      WHERE ${where}
-     ORDER BY q.title_en ASC`,
+     ORDER BY ${popular ? 'play_count DESC, q.title_en ASC' : 'q.title_en ASC'}`,
     params
   );
   ok(res, rows.filter((r) => r.question_count > 0));

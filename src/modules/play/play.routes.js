@@ -106,6 +106,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         category_name_en: { type: string, nullable: true }
  *         category_name_ar: { type: string, nullable: true }
  *         question_count: { type: integer, description: "How many questions this quiz has — always > 0 here, empty quizzes are filtered out" }
+ *         play_count: { type: integer, description: "Real activity count — distinct game sessions that have answered a question from this quiz. This is what sort=popular ranks by; also useful to show as a 'played N times' badge." }
  * tags:
  *   - name: Play
  *     description: >
@@ -117,7 +118,7 @@ const requireAuth = require('../../middlewares/auth.middleware');
  * /play/quizzes:
  *   get:
  *     tags: [Play]
- *     summary: List quizzes (categories) that have at least one question, for board selection
+ *     summary: "List individual playable games/quizzes — this is the endpoint for a mobile/web \"Games\" or \"Popular Games\" screen (GET /game-categories only returns category folders, not individual games)"
  *     description: >
  *       Public — no login required, so a guest can browse the Select
  *       Category screen before signing in. Only actually creating or
@@ -131,10 +132,22 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *         name: mode
  *         schema: { type: string, enum: [solo, team] }
  *         description: Only return quizzes the admin marked as supporting this mode (or 'both')
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [popular] }
+ *         description: >
+ *           popular ranks by real play activity (play_count, descending) —
+ *           the number of distinct game sessions that have actually
+ *           answered a question from that quiz. Omit for the default
+ *           alphabetical order.
  *     responses:
  *       200:
  *         description: List of quizzes
- *         content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/ApiSuccess' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/PlayableQuiz' } } } }] } } }
+ *         content:
+ *           application/json:
+ *             schema: { allOf: [{ $ref: '#/components/schemas/ApiSuccess' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/PlayableQuiz' } } } }] }
+ *             examples:
+ *               popular: { value: { success: true, message: OK, data: [{ id: 12, title_en: "Kuwaiti Football", play_count: 47, question_count: 20 }] } }
  * /play/sessions:
  *   post:
  *     tags: [Play]
