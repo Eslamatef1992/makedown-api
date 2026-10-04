@@ -1064,9 +1064,17 @@ async function hasUsedLifeline(sessionId, scopeId, lifelineType) {
 }
 
 async function markLifelineUsed(sessionId, participantId, teamId, lifelineType, questionId) {
+  // scope_id is a plain column the app sets explicitly, not a MySQL
+  // GENERATED column — adding a STORED generated column to this table hit
+  // a real InnoDB limitation on the server (adding one forces a table
+  // copy that re-creates every existing foreign key as a side effect, and
+  // that recreation failed with "Cannot add foreign key constraint" even
+  // with foreign_key_checks disabled — see sql/fix_lifeline_scope_id_v2.sql).
+  // Computing it here instead sidesteps that entirely.
+  const scopeId = teamId || participantId;
   await pool.query(
-    'INSERT INTO game_lifeline_usage (session_id, participant_id, team_id, lifeline_type, question_id) VALUES (?, ?, ?, ?, ?)',
-    [sessionId, participantId, teamId, lifelineType, questionId]
+    'INSERT INTO game_lifeline_usage (session_id, participant_id, team_id, scope_id, lifeline_type, question_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [sessionId, participantId, teamId, scopeId, lifelineType, questionId]
   );
 }
 
