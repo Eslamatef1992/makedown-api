@@ -22,13 +22,24 @@ const item = Joi.object({
 const checkout = Joi.object({
   items: Joi.array().items(item).min(1).required(),
   shippingAddress: address.required(),
-  paymentMethod: Joi.string().valid('knet', 'credit_card', 'cash').required(),
+  // apple_pay/google_pay accepted the same way knet/credit_card are: looked
+  // up by name in MyFatoorah's live InitiatePayment response (see
+  // orders.controller.js#checkout and myfatoorah.service.js#findMethodId).
+  // Whether they actually show up there depends on the merchant account's
+  // MyFatoorah configuration, not on anything this API controls — a method
+  // not currently enabled on the account returns a clear 400, never a
+  // silent failure.
+  paymentMethod: Joi.string().valid('knet', 'credit_card', 'apple_pay', 'google_pay', 'cash').required(),
   discountCode: Joi.string().allow('', null),
   // Required only when the request has no Authorization header — enforced
   // in the controller, since Joi can't see the auth header.
   guestName: Joi.string().min(1).max(150),
   guestEmail: Joi.string().email(),
   guestPhone: Joi.string().min(6).max(30),
+  // Opt-in to a deep-link MyFatoorah callback (see payments.controller.js)
+  // instead of the default website redirect. Defaults to 'web' so nothing
+  // changes for the existing website checkout.
+  platform: Joi.string().valid('web', 'mobile').default('web'),
 });
 
 module.exports = { checkout };

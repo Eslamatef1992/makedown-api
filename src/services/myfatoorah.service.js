@@ -97,11 +97,26 @@ async function getPaymentStatus(key, keyType = 'PaymentId') {
   };
 }
 
-// Helper to find the KNET / card payment methods among initiatePayment()'s
-// list without hardcoding IDs that differ per merchant account.
+// Helper to find a payment method among initiatePayment()'s list by name,
+// without hardcoding IDs that differ per merchant account.
 function findMethodId(methods, matcher) {
   const found = methods.find((m) => matcher.test(m.PaymentMethodEn || ''));
   return found?.PaymentMethodId || null;
 }
 
-module.exports = { initiatePayment, executePayment, getPaymentStatus, findMethodId };
+// One matcher per paymentMethod value this API accepts. apple_pay/google_pay
+// work the exact same way knet/credit_card already do — MyFatoorah either
+// lists "ApplePay"/"GooglePay" in InitiatePayment's PaymentMethods for this
+// merchant account, or it doesn't; findMethodId returning null either way
+// turns into the same clear 400 orders.controller.js#checkout already
+// throws for knet/credit_card, never a silent failure. Whether Apple Pay/
+// Google Pay actually show up depends entirely on the MyFatoorah account's
+// own configuration (a dashboard/contract question), not on this code.
+const PAYMENT_METHOD_MATCHERS = {
+  knet: /knet/i,
+  credit_card: /visa|master|card/i,
+  apple_pay: /apple\s*pay/i,
+  google_pay: /google\s*pay/i,
+};
+
+module.exports = { initiatePayment, executePayment, getPaymentStatus, findMethodId, PAYMENT_METHOD_MATCHERS };

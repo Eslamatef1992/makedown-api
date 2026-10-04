@@ -51,6 +51,14 @@ module.exports = {
   // (the payment callback redirects here with a ?status=success|failed).
   frontendUrl: process.env.FRONTEND_URL || 'https://www.makedown.online',
 
+  // The Flutter app's registered custom URL scheme (its AndroidManifest.xml
+  // intent-filter / iOS Info.plist CFBundleURLSchemes) — set this to match
+  // whatever the app actually registers, there is no safe default that
+  // works out of the box. Used only when a checkout explicitly asks for a
+  // mobile deep-link callback (see orders.controller.js#checkout's
+  // `platform` field) instead of the website redirect.
+  mobileAppScheme: process.env.MOBILE_APP_SCHEME || null,
+
   myfatoorah: {
     apiKey: process.env.MYFATOORAH_API_KEY,
     // apitest.myfatoorah.com for a test-mode API key, api.myfatoorah.com for live.

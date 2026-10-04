@@ -72,14 +72,21 @@ async function sendConfirmationEmail(order) {
 // placed immediately and confirmed by email right away, since there's no
 // gateway step to wait for.
 const checkout = asyncHandler(async (req, res) => {
-  const { items, shippingAddress, paymentMethod, discountCode, guestName, guestEmail, guestPhone } = req.body;
+  const { items, shippingAddress, paymentMethod, discountCode, guestName, guestEmail, guestPhone, platform } = req.body;
 
   if (!req.user && (!guestEmail || !guestName)) {
     throw ApiError.badRequest('Guest checkout requires guestName and guestEmail');
   }
 
-  if (!['knet', 'credit_card', 'cash'].includes(paymentMethod)) {
-    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card, cash');
+  if (!['knet', 'credit_card', 'apple_pay', 'google_pay', 'cash'].includes(paymentMethod)) {
+    throw ApiError.badRequest('paymentMethod must be one of: knet, credit_card, apple_pay, google_pay, cash');
+  }
+  // A mobile deep-link callback needs MOBILE_APP_SCHEME configured (see
+  // env.js) — fail the checkout up front rather than silently falling back
+  // to a website URL a webview can't navigate to, which would strand the
+  // customer on MyFatoorah's page with no way back into the app.
+  if (platform === 'mobile' && !env.mobileAppScheme) {
+    throw ApiError.badRequest('Mobile deep-link payment callback is not configured yet (missing MOBILE_APP_SCHEME)');
   }
   if (paymentMethod === 'cash') {
     const codSetting = await siteSettingsRepo.getValue(COD_PRODUCTS_KEY);
@@ -183,18 +190,21 @@ const checkout = asyncHandler(async (req, res) => {
     return created(res, { ...finalOrder, items: finalItems, redirectUrl: null }, 'Order placed');
   }
 
-  // knet / credit_card — same MyFatoorah hosted-page flow packages.controller.js#purchase
-  // uses; the myFatoorahCallback confirms payment and sends the email once
-  // it's real.
+  // knet / credit_card / apple_pay / google_pay — same MyFatoorah
+  // hosted-page flow packages.controller.js#purchase uses; the
+  // myFatoorahCallback confirms payment and sends the email once it's real.
   const methods = await myfatoorah.initiatePayment(grandTotal, 'KWD');
-  const matcher = paymentMethod === 'knet' ? /knet/i : /visa|master|card/i;
-  const paymentMethodId = myfatoorah.findMethodId(methods, matcher);
+  const paymentMethodId = myfatoorah.findMethodId(methods, myfatoorah.PAYMENT_METHOD_MATCHERS[paymentMethod]);
   if (!paymentMethodId) {
-    throw ApiError.badRequest(`${paymentMethod === 'knet' ? 'KNET' : 'Credit card'} payment is not available right now`);
+    const label = { knet: 'KNET', credit_card: 'Credit card', apple_pay: 'Apple Pay', google_pay: 'Google Pay' }[paymentMethod];
+    throw ApiError.badRequest(`${label} payment is not available right now`);
   }
 
   const customer = req.user ? await usersRepo.findById(req.user.id) : null;
-  const callbackUrl = `${env.apiBaseUrl}/api/v1/payments/myfatoorah/callback?orderId=${order.id}`;
+  // `platform=mobile` is what payments.controller.js#myFatoorahCallback
+  // checks to redirect to the app's deep link instead of the website —
+  // validated above, so this is never sent without MOBILE_APP_SCHEME set.
+  const callbackUrl = `${env.apiBaseUrl}/api/v1/payments/myfatoorah/callback?orderId=${order.id}${platform === 'mobile' ? '&platform=mobile' : ''}`;
   const { paymentUrl } = await myfatoorah.executePayment({
     paymentMethodId,
     invoiceValue: grandTotal,

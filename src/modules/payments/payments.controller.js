@@ -30,11 +30,28 @@ async function sendOrderConfirmationEmail(order) {
 // result screen; a product order (no packageId) lands on the ecommerce
 // order-confirmation screen instead, matching how each was checked out.
 const myFatoorahCallback = asyncHandler(async (req, res) => {
-  const { orderId, packageId, paymentId, Id } = req.query;
+  const { orderId, packageId, paymentId, Id, platform } = req.query;
   const key = paymentId || Id; // MyFatoorah's redirect param name has varied across API versions
 
-  const resultBase = packageId ? `${env.frontendUrl}/profile/payment-result` : `${env.frontendUrl}/order-placed`;
-  const failBase = packageId ? `${env.frontendUrl}/profile/payment-result` : `${env.frontendUrl}/order-failed`;
+  // Mobile checkout opted in (orders.controller.js#checkout set
+  // ?platform=mobile on the callback URL, only once MOBILE_APP_SCHEME was
+  // confirmed configured) — send the browser/webview to the app's deep
+  // link instead of a website page it can't meaningfully show. Package
+  // purchases don't have a mobile checkout flow yet, so this only applies
+  // to orders (packageId unset).
+  const useDeepLink = platform === 'mobile' && !packageId && env.mobileAppScheme;
+  const scheme = `${env.mobileAppScheme}://`;
+
+  const resultBase = packageId
+    ? `${env.frontendUrl}/profile/payment-result`
+    : useDeepLink
+      ? `${scheme}order-placed`
+      : `${env.frontendUrl}/order-placed`;
+  const failBase = packageId
+    ? `${env.frontendUrl}/profile/payment-result`
+    : useDeepLink
+      ? `${scheme}order-failed`
+      : `${env.frontendUrl}/order-failed`;
   const fail = (reason) => res.redirect(`${failBase}?status=failed&reason=${encodeURIComponent(reason)}`);
   const succeed = (order) =>
     res.redirect(`${resultBase}?status=success&orderId=${orderId}${order ? `&orderNumber=${order.order_number}` : ''}`);
