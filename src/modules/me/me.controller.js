@@ -10,6 +10,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { ok, created } = require('../../utils/apiResponse');
 const ApiError = require('../../utils/ApiError');
 const env = require('../../config/env');
+const { cancelOwnedOrder } = require('../orders/orders.service');
 
 function publicUser(user) {
   return {
@@ -186,6 +187,17 @@ const getMyOrder = asyncHandler(async (req, res) => {
   ok(res, { ...order, items });
 });
 
+// Duplicate-pending-orders fix (claude/duplicate-pending-orders-findings.md).
+// Lets a logged-in customer explicitly cancel their own still-pending
+// order (e.g. backed out of the payment webview) instead of waiting for
+// the background sweep (src/jobs/expireStaleOrders.js) to time it out.
+const cancelMyOrder = asyncHandler(async (req, res) => {
+  const order = await repo.findMyOrder(req.user.id, req.params.id);
+  if (!order) throw ApiError.notFound('Order not found');
+  const updated = await cancelOwnedOrder(order);
+  ok(res, updated, 'Order cancelled');
+});
+
 // ---- my packages ----
 
 const listMyPackages = asyncHandler(async (req, res) => {
@@ -208,6 +220,7 @@ module.exports = {
   updateAddress,
   deleteAddress,
   listMyOrders,
+  cancelMyOrder,
   getMyOrder,
   listMyPackages,
   listGameHistory,

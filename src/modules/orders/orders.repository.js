@@ -97,4 +97,76 @@ async function createItems(orderId, items) {
   return listItems(orderId);
 }
 
-module.exports = { list, findById, findByOrderNumber, listItems, updateStatus, create, createItems, generateOrderNumber };
+async function deleteItems(orderId) {
+  await pool.query('DELETE FROM order_items WHERE order_id = ?', [orderId]);
+}
+
+// Duplicate-pending-orders fix (claude/duplicate-pending-orders-findings.md):
+// a checkout retry reuses the caller's own most-recent still-pending online
+// order instead of creating a new row, as long as it hasn't aged past
+// env.pendingOrderExpiryMinutes. Only ever looks at online-payment orders
+// (knet/credit_card/apple_pay/google_pay) - cash orders move straight to
+// 'processing' and are never left pending. Guest checkouts have no
+// persistent identity (no cart/guest token on `orders`), so they're matched
+// on the same guestEmail+guestPhone the client already sends every attempt;
+// pass only userId for a logged-in caller, or only guestEmail+guestPhone for
+// a guest one.
+async function findReusablePending({ userId, guestEmail, guestPhone }, minutes) {
+  if (userId) {
+    const [rows] = await pool.query(
+      `SELECT * FROM orders
+       WHERE user_id = ? AND status = 'pending' AND payment_status = 'unpaid'
+         AND payment_method IN ('knet','credit_card','apple_pay','google_pay')
+         AND created_at > NOW() - INTERVAL ? MINUTE
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, minutes]
+    );
+    return rows[0] || null;
+  }
+  if (guestEmail && guestPhone) {
+    const [rows] = await pool.query(
+      `SELECT * FROM orders
+       WHERE user_id IS NULL AND guest_email = ? AND guest_phone = ?
+         AND status = 'pending' AND payment_status = 'unpaid'
+         AND payment_method IN ('knet','credit_card','apple_pay','google_pay')
+         AND created_at > NOW() - INTERVAL ? MINUTE
+       ORDER BY created_at DESC LIMIT 1`,
+      [guestEmail, guestPhone, minutes]
+    );
+    return rows[0] || null;
+  }
+  return null;
+}
+
+async function markCancelled(id) {
+  await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ?", [id]);
+  return findById(id);
+}
+
+// For the background sweep (src/jobs/expireStaleOrders.js) - every
+// pending/unpaid order (any payment method, though cash never lingers here
+// in practice) old enough to give up on.
+async function findStalePending(minutes) {
+  const [rows] = await pool.query(
+    `SELECT id, coupon_id FROM orders
+     WHERE status = 'pending' AND payment_status = 'unpaid'
+       AND created_at < NOW() - INTERVAL ? MINUTE`,
+    [minutes]
+  );
+  return rows;
+}
+
+module.exports = {
+  list,
+  findById,
+  findByOrderNumber,
+  listItems,
+  updateStatus,
+  create,
+  createItems,
+  deleteItems,
+  findReusablePending,
+  markCancelled,
+  findStalePending,
+  generateOrderNumber,
+};

@@ -359,6 +359,29 @@ const requireAuth = require('../../middlewares/auth.middleware');
  *       404:
  *         description: Not your order, or it doesn't exist
  *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "Order not found" } } }
+ * /me/orders/{id}/cancel:
+ *   patch:
+ *     tags: [Me]
+ *     summary: Cancel one of my still-pending orders
+ *     description: >
+ *       Lets a logged-in customer back out of a pending online-payment
+ *       order instead of retrying or waiting for it to auto-expire — see
+ *       claude/duplicate-pending-orders-findings.md. A retry with the same
+ *       items/address/coupon reuses this order automatically on its own
+ *       (POST /orders), so this is mainly for an explicit "cancel"
+ *       action in the UI.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+ *     responses:
+ *       200:
+ *         description: Cancelled
+ *         content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/ApiSuccess' }, { type: object, properties: { data: { $ref: '#/components/schemas/OrderResult' } } }] } } }
+ *       404:
+ *         description: Not your order, or it doesn't exist
+ *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "Order not found" } } }
+ *       409:
+ *         description: Order isn't pending anymore
+ *         content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' }, example: { success: false, message: "Order cannot be cancelled in its current state", details: { code: "ORDER_NOT_CANCELLABLE" } } } }
  * /me/packages:
  *   get:
  *     tags: [Me]
@@ -402,6 +425,7 @@ router.patch('/addresses/:id', controller.updateAddress);
 router.delete('/addresses/:id', controller.deleteAddress);
 router.get('/orders', controller.listMyOrders);
 router.get('/orders/:id', controller.getMyOrder);
+router.patch('/orders/:id/cancel', controller.cancelMyOrder);
 router.get('/packages', controller.listMyPackages);
 router.get('/game-history', controller.listGameHistory);
 

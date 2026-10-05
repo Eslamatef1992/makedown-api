@@ -59,6 +59,13 @@ module.exports = {
   // `platform` field) instead of the website redirect.
   mobileAppScheme: process.env.MOBILE_APP_SCHEME || null,
 
+  // How long a knet/credit_card/apple_pay/google_pay order is allowed to sit
+  // as status=pending/payment_status=unpaid before it's eligible to be
+  // reused by a checkout retry (see orders.controller.js#checkout) or
+  // auto-cancelled by the background sweep (src/jobs/expireStaleOrders.js).
+  // Cash orders are unaffected - they never stay pending.
+  pendingOrderExpiryMinutes: Number(process.env.PENDING_ORDER_EXPIRY_MINUTES) || 30,
+
   myfatoorah: {
     apiKey: process.env.MYFATOORAH_API_KEY,
     // apitest.myfatoorah.com for a test-mode API key, api.myfatoorah.com for live.

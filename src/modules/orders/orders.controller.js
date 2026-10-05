@@ -10,6 +10,7 @@ const siteSettingsRepo = require('../site-settings/site-settings.repository');
 const { sendMail, orderConfirmationEmailTemplate } = require('../../config/mailer');
 const myfatoorah = require('../../services/myfatoorah.service');
 const env = require('../../config/env');
+const { cancelOwnedOrder, cancelPendingOrder: cancelPendingOrderRelease } = require('./orders.service');
 
 const DELIVERY_FEE_KEY = 'order_delivery_fee'; // must match site-settings.controller.js
 const COD_PRODUCTS_KEY = 'cod_enabled_products'; // must match site-settings.controller.js
@@ -62,6 +63,24 @@ async function sendConfirmationEmail(order) {
     // A failed email must never fail the order itself — it's already been
     // placed/paid for by this point. Nothing left to roll back.
   }
+}
+
+// --- Duplicate-pending-orders fix helpers (claude/duplicate-pending-orders-findings.md) ---
+// Used by checkout() to decide whether a candidate pending order is "the
+// same checkout attempt, retried" (safe to reuse) or something that
+// actually changed (cart/address/coupon), in which case the stale pending
+// order gets cancelled instead and a fresh one is created as before.
+function itemsMatch(existingRows, freshItems) {
+  if (existingRows.length !== freshItems.length) return false;
+  const key = (r) => `${r.product_id}:${r.variant_id || 0}:${r.quantity}`;
+  const a = existingRows.map(key).sort();
+  const b = freshItems.map(key).sort();
+  return a.every((v, i) => v === b[i]);
+}
+
+function addressesMatch(a, b) {
+  const fields = ['governorate', 'area', 'block', 'street', 'buildingNumber', 'moreDetails'];
+  return fields.every((f) => (a?.[f] ?? null) === (b?.[f] ?? null));
 }
 
 // Public — the website's checkout flow submits here. Always recomputes
@@ -179,15 +198,70 @@ const checkout = asyncHandler(async (req, res) => {
     shipping_address_json: JSON.stringify(shippingAddress),
   };
 
-  const order = await repo.create(orderData);
-  await repo.createItems(order.id, lineItems);
-  if (coupon) await couponsRepo.incrementUsage(coupon.id);
+  // Duplicate-pending-orders fix: a checkout retry (same items, same
+  // address, same discount code) reuses the caller's own still-pending
+  // online order instead of inserting a new row — this is what was piling
+  // up as repeated pending/unpaid orders on every retry after an
+  // incomplete/failed payment. Only ever considered for online payment
+  // methods; cash orders complete immediately so there's nothing to reuse.
+  let reused = false;
+  let order;
+  if (paymentMethod !== 'cash') {
+    const candidate = await repo.findReusablePending(
+      {
+        userId: req.user ? req.user.id : null,
+        guestEmail: req.user ? null : guestEmail,
+        guestPhone: req.user ? null : guestPhone,
+      },
+      env.pendingOrderExpiryMinutes
+    );
+    if (candidate) {
+      const candidateItems = await repo.listItems(candidate.id);
+      const candidateAddress = candidate.shipping_address_json
+        ? typeof candidate.shipping_address_json === 'string'
+          ? JSON.parse(candidate.shipping_address_json)
+          : candidate.shipping_address_json
+        : null;
+      const sameItems = itemsMatch(candidateItems, lineItems);
+      const sameAddress = addressesMatch(candidateAddress, shippingAddress);
+      const sameCoupon = (candidate.coupon_code || null) === (coupon ? coupon.code : null);
+      if (sameItems && sameAddress && sameCoupon) {
+        // Same attempt, retried — refresh its snapshot (prices may have
+        // moved since the first attempt, same as a brand-new order would
+        // recompute) and get a fresh MyFatoorah payment URL. No second
+        // coupon increment: this order already reserved its use the first
+        // time it was created.
+        await repo.deleteItems(candidate.id);
+        await repo.createItems(candidate.id, lineItems);
+        await repo.updateStatus(candidate.id, {
+          subtotal,
+          discount_total: discountTotal,
+          shipping_total: shippingTotal,
+          grand_total: grandTotal,
+          payment_method: paymentMethod,
+        });
+        order = await repo.findById(candidate.id);
+        reused = true;
+      } else {
+        // Cart/address/coupon actually changed — the old pending order is
+        // stale, not "the same checkout". Cancel it (releasing its coupon
+        // use) and fall through to create a fresh order as normal.
+        await cancelPendingOrderRelease(candidate);
+      }
+    }
+  }
+
+  if (!order) {
+    order = await repo.create(orderData);
+    await repo.createItems(order.id, lineItems);
+    if (coupon) await couponsRepo.incrementUsage(coupon.id);
+  }
 
   if (paymentMethod === 'cash') {
     const finalOrder = await repo.updateStatus(order.id, { status: 'processing' });
     const finalItems = await repo.listItems(order.id);
     await sendConfirmationEmail(finalOrder);
-    return created(res, { ...finalOrder, items: finalItems, redirectUrl: null }, 'Order placed');
+    return created(res, { ...finalOrder, items: finalItems, redirectUrl: null, reused: false }, 'Order placed');
   }
 
   // knet / credit_card / apple_pay / google_pay — same MyFatoorah
@@ -216,7 +290,20 @@ const checkout = asyncHandler(async (req, res) => {
   });
 
   const finalItems = await repo.listItems(order.id);
-  created(res, { ...order, items: finalItems, redirectUrl: paymentUrl }, 'Redirecting to payment');
+  const respond = reused ? ok : created;
+  respond(res, { ...order, items: finalItems, redirectUrl: paymentUrl, reused }, reused ? 'Resuming existing payment' : 'Redirecting to payment');
 });
 
-module.exports = { list, getOne, updateStatus, checkout, trackByOrderNumber };
+// User- or guest-initiated cancel of a still-pending order, keyed by the
+// same unguessable order_number used for the public tracking lookup (see
+// findByOrderNumber's comment) — no login required, same access model as
+// GET /orders/track/{orderNumber}. Only legal while status is still
+// 'pending' (not paid/processing/shipped/delivered/refunded/cancelled).
+const cancelByOrderNumber = asyncHandler(async (req, res) => {
+  const order = await repo.findByOrderNumber(req.params.orderNumber);
+  if (!order) throw ApiError.notFound('Order not found');
+  const updated = await cancelOwnedOrder(order);
+  ok(res, updated, 'Order cancelled');
+});
+
+module.exports = { list, getOne, updateStatus, checkout, trackByOrderNumber, cancelByOrderNumber };

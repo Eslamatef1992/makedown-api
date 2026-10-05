@@ -16,4 +16,14 @@ async function incrementUsage(id) {
   await pool.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?', [id]);
 }
 
-module.exports = { ...base, findByCode, incrementUsage };
+// Releases a use that was reserved at order-creation time (orders.controller.js
+// #checkout increments usage before payment is confirmed) when that order
+// turns out to be cancelled/expired without ever actually being paid for -
+// otherwise an abandoned or superseded pending order permanently burns a
+// slot on a limited-use code. GREATEST(...,0) guards against ever going
+// negative if this were somehow called twice for the same order.
+async function decrementUsage(id) {
+  await pool.query('UPDATE coupons SET used_count = GREATEST(used_count - 1, 0) WHERE id = ?', [id]);
+}
+
+module.exports = { ...base, findByCode, incrementUsage, decrementUsage };

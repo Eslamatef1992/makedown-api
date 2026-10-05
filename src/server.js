@@ -6,6 +6,7 @@ const env = require('./config/env');
 const { checkConnection } = require('./config/db');
 const { verifyAccessToken } = require('./utils/tokens');
 const playRepo = require('./modules/play/play.repository');
+const expireStaleOrders = require('./jobs/expireStaleOrders');
 
 const server = http.createServer(app);
 
@@ -68,6 +69,11 @@ async function start() {
     console.log(`[server] Make Down API listening on port ${env.port} (${env.nodeEnv})`);
     console.log(`[server] Swagger docs: ${env.apiBaseUrl}/swagger`);
   });
+
+  // Background sweep for abandoned pending/unpaid orders - see
+  // src/jobs/expireStaleOrders.js. Started here (not at module load) so it
+  // only runs once the server is actually up.
+  expireStaleOrders.start();
 }
 
 start();

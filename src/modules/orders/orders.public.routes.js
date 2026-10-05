@@ -131,6 +131,17 @@ const { checkout } = require('../../validators/checkout.validator');
  *           nullable: true
  *           example: null
  *           description: "null for cash (nothing to redirect to — already placed). For knet/credit_card/apple_pay/google_pay, the MyFatoorah hosted payment page URL to open."
+ *         reused:
+ *           type: boolean
+ *           example: false
+ *           description: >
+ *             true only when this checkout call reused an existing
+ *             still-pending online order from an earlier attempt on the
+ *             same cart/address/coupon, instead of creating a new one (see
+ *             claude/duplicate-pending-orders-findings.md) — the response
+ *             status is 200 in that case rather than 201. Always false for
+ *             cash and for a freshly created order; purely informational,
+ *             nothing in the app needs to branch on it.
  */
 
 /**
@@ -205,10 +216,10 @@ const { checkout } = require('../../validators/checkout.validator');
  *             examples:
  *               cash:
  *                 summary: Cash — placed immediately, nothing to redirect to
- *                 value: { success: true, message: "Order placed", data: { id: 233, order_number: "MDLXJ3K9F2A1B", status: "processing", payment_status: "unpaid", payment_method: "cash", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", guest_name: "Sara Al-Fahad", guest_email: "sara@example.com", guest_phone: "+96555512345", items: [{ id: 881, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: null } }
+ *                 value: { success: true, message: "Order placed", data: { id: 233, order_number: "MDLXJ3K9F2A1B", status: "processing", payment_status: "unpaid", payment_method: "cash", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", guest_name: "Sara Al-Fahad", guest_email: "sara@example.com", guest_phone: "+96555512345", items: [{ id: 881, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: null, reused: false } }
  *               online:
  *                 summary: KNET/credit_card/apple_pay/google_pay — redirect to pay
- *                 value: { success: true, message: "Redirecting to payment", data: { id: 234, order_number: "MDLXJ400A2C3", status: "pending", payment_status: "unpaid", payment_method: "knet", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", items: [{ id: 882, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: "https://demo.myfatoorah.com/KWT/ie/..." } }
+ *                 value: { success: true, message: "Redirecting to payment", data: { id: 234, order_number: "MDLXJ400A2C3", status: "pending", payment_status: "unpaid", payment_method: "knet", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", items: [{ id: 882, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: "https://demo.myfatoorah.com/KWT/ie/...", reused: false } }
  *       400:
  *         description: Validation error, a product/variant is no longer available, a payment method isn't enabled on the MyFatoorah account, or a coupon issue
  *         content:
@@ -241,5 +252,39 @@ router.post('/', optionalAuth, validate(checkout), controller.checkout);
  *       404: { description: Not found }
  */
 router.get('/track/:orderNumber', controller.trackByOrderNumber);
+
+/**
+ * @swagger
+ * /orders/track/{orderNumber}/cancel:
+ *   post:
+ *     tags: [Orders]
+ *     summary: >
+ *       Cancel a still-pending order (public — same unguessable
+ *       order_number access model as GET /orders/track/{orderNumber}, no
+ *       login required). Call this when the customer explicitly backs out
+ *       of the payment page/webview instead of retrying — it's the fast
+ *       path; an abandoned order that's never explicitly cancelled is
+ *       still cleaned up automatically after PENDING_ORDER_EXPIRY_MINUTES
+ *       (default 30) by a background sweep. Retrying checkout with the
+ *       same items/address/coupon instead of cancelling also works fine
+ *       on its own — POST /orders reuses the existing pending order in
+ *       that case rather than creating a new one. See
+ *       claude/duplicate-pending-orders-findings.md.
+ *     parameters: [{ in: path, name: orderNumber, required: true, schema: { type: string }, example: "MDLXJ3K9F2A1B" }]
+ *     responses:
+ *       200:
+ *         description: Cancelled
+ *         content:
+ *           application/json:
+ *             schema: { allOf: [{ $ref: '#/components/schemas/ApiSuccess' }, { type: object, properties: { data: { $ref: '#/components/schemas/OrderResult' } } }] }
+ *       404: { description: Not found }
+ *       409:
+ *         description: Order isn't pending anymore (already paid/processing/shipped/delivered/refunded, or already cancelled)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *             example: { success: false, message: "Order cannot be cancelled in its current state", details: { code: "ORDER_NOT_CANCELLABLE" } }
+ */
+router.post('/track/:orderNumber/cancel', controller.cancelByOrderNumber);
 
 module.exports = router;
