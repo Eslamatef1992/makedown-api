@@ -25,8 +25,13 @@ async function resolveCart(req) {
 }
 
 // Same "never trust the client, recompute from the database" rule
-// orders.controller.js#checkout uses for price and stock.
-async function resolveLine(productId, variantId, quantity) {
+// orders.controller.js#checkout uses for price and stock — including gift
+// box: the client only says whether it wants one, the price addition
+// always comes from the product's own gift_box_price, same as checkout's
+// wantsGiftBox. giftBox is folded straight into unitPrice (so lineTotal
+// already reflects it with no app-side math needed), exactly like
+// checkout folds it into order_items.unit_price.
+async function resolveLine(productId, variantId, quantity, giftBox) {
   const product = await productsRepo.findById(productId);
   if (!product || !product.is_active) {
     throw ApiError.badRequest(`Product ${productId} is no longer available`);
@@ -64,7 +69,12 @@ async function resolveLine(productId, variantId, quantity) {
     }
   }
 
-  return { product, variant, unitPrice, quantity };
+  const hasGiftBox = Boolean(giftBox) && Boolean(product.has_gift_box) && product.gift_box_price != null;
+  if (hasGiftBox) {
+    unitPrice = Math.round((unitPrice + Number(product.gift_box_price)) * 1000) / 1000;
+  }
+
+  return { product, variant, unitPrice, quantity, hasGiftBox };
 }
 
 function shapeCart(cart, items, guestToken) {
@@ -82,6 +92,7 @@ function shapeCart(cart, items, guestToken) {
       productId: row.product_id,
       variantId: row.variant_id,
       quantity: row.quantity,
+      hasGiftBox: Boolean(row.has_gift_box), // unitPrice/lineTotal already include the gift-box add-on when true
       unitPrice: Number(row.unit_price),
       lineTotal,
       available, // false when the product/variant went inactive or out of stock after this was added
@@ -117,23 +128,27 @@ const getCart = asyncHandler(async (req, res) => {
   ok(res, shapeCart(cart, items, createdNewGuestToken !== null ? createdNewGuestToken : cart.guest_token));
 });
 
-// POST /cart/items — add (or increment) a line. Body: { productId, variantId?, quantity? }
+// POST /cart/items — add (or increment) a line. Body: { productId, variantId?, quantity?, giftBox? }
 const addItem = asyncHandler(async (req, res) => {
-  const { productId, variantId, quantity } = req.body;
+  const { productId, variantId, quantity, giftBox } = req.body;
   const { cart, createdNewGuestToken } = await resolveCart(req);
-  const { unitPrice } = await resolveLine(productId, variantId, quantity);
-  await repo.addItem(cart.id, { productId, variantId: variantId || null, quantity, unitPrice });
+  const { unitPrice, hasGiftBox } = await resolveLine(productId, variantId, quantity, giftBox);
+  await repo.addItem(cart.id, { productId, variantId: variantId || null, quantity, unitPrice, hasGiftBox });
   const items = await repo.listItems(cart.id);
   created(res, shapeCart(cart, items, createdNewGuestToken !== null ? createdNewGuestToken : cart.guest_token), 'Added to cart');
 });
 
 // PATCH /cart/items/:itemId — set an exact quantity. Body: { quantity }
+// giftBox isn't editable here — only quantity. The existing item's own
+// has_gift_box carries over as-is (re-priced against the product's
+// current gift_box_price, same as a plain price refresh); to change the
+// gift-box selection, remove the line and add it again.
 const updateItem = asyncHandler(async (req, res) => {
   const { cart } = await resolveCart(req);
   const item = await repo.findItemById(req.params.itemId);
   if (!item || item.cart_id !== cart.id) throw ApiError.notFound('Cart item not found');
 
-  const { unitPrice } = await resolveLine(item.product_id, item.variant_id, req.body.quantity);
+  const { unitPrice } = await resolveLine(item.product_id, item.variant_id, req.body.quantity, item.has_gift_box);
   await repo.updateItemQuantity(item.id, req.body.quantity, unitPrice);
   const items = await repo.listItems(cart.id);
   ok(res, shapeCart(cart, items), 'Updated');

@@ -78,21 +78,28 @@ async function findItemById(id) {
   return rows[0] || null;
 }
 
-async function findItem(cartId, productId, variantId) {
+// giftBox is part of what makes a line distinct, same as variantId — a
+// gift-boxed unit and a plain unit of the same product/variant are two
+// different purchase intents (and two different prices), so they must
+// stay two separate rows rather than being merged into one quantity.
+async function findItem(cartId, productId, variantId, giftBox) {
+  const hasGiftBox = giftBox ? 1 : 0;
   const [rows] = await pool.query(
     variantId
-      ? 'SELECT * FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id = ? LIMIT 1'
-      : 'SELECT * FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id IS NULL LIMIT 1',
-    variantId ? [cartId, productId, variantId] : [cartId, productId]
+      ? 'SELECT * FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id = ? AND has_gift_box = ? LIMIT 1'
+      : 'SELECT * FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_id IS NULL AND has_gift_box = ? LIMIT 1',
+    variantId ? [cartId, productId, variantId, hasGiftBox] : [cartId, productId, hasGiftBox]
   );
   return rows[0] || null;
 }
 
-// Adding the same product+variant again increments quantity and refreshes
-// the price snapshot to the current price, rather than creating a second
-// row for the same line.
-async function addItem(cartId, { productId, variantId, quantity, unitPrice }) {
-  const existing = await findItem(cartId, productId, variantId);
+// Adding the same product+variant+giftBox selection again increments
+// quantity and refreshes the price snapshot to the current price (which
+// already includes the gift-box add-on when hasGiftBox is set — see
+// cart.controller.js#resolveLine), rather than creating a second row for
+// the same line.
+async function addItem(cartId, { productId, variantId, quantity, unitPrice, hasGiftBox }) {
+  const existing = await findItem(cartId, productId, variantId, hasGiftBox);
   if (existing) {
     await pool.query('UPDATE cart_items SET quantity = quantity + ?, unit_price = ? WHERE id = ?', [
       quantity,
@@ -103,7 +110,14 @@ async function addItem(cartId, { productId, variantId, quantity, unitPrice }) {
     return findItemById(existing.id);
   }
   const [result] = await pool.query('INSERT INTO cart_items SET ?', [
-    { cart_id: cartId, product_id: productId, variant_id: variantId || null, quantity, unit_price: unitPrice },
+    {
+      cart_id: cartId,
+      product_id: productId,
+      variant_id: variantId || null,
+      quantity,
+      has_gift_box: hasGiftBox ? 1 : 0,
+      unit_price: unitPrice,
+    },
   ]);
   await pool.query('UPDATE carts SET updated_at = NOW() WHERE id = ?', [cartId]);
   return findItemById(result.insertId);
@@ -140,6 +154,7 @@ async function mergeGuestCartIntoUser(guestCart, userId) {
       variantId: item.variant_id,
       quantity: item.quantity,
       unitPrice: item.unit_price,
+      hasGiftBox: Boolean(item.has_gift_box),
     });
   }
   await clearCart(guestCart.id);

@@ -43,6 +43,7 @@ const { addItem, updateItem, merge } = require('../../validators/cart.validator'
  *               productId: { type: integer }
  *               variantId: { type: integer, nullable: true }
  *               quantity: { type: integer }
+ *               hasGiftBox: { type: boolean, example: false, description: "Whether this line includes the product's gift box add-on. unitPrice/lineTotal already have the gift-box price folded in when true — no extra math needed client-side. A gift-boxed and a non-gift-boxed line for the same product/variant are always two separate line items, never merged." }
  *               unitPrice: { type: number }
  *               lineTotal: { type: number }
  *               available: { type: boolean, description: False if the product/variant went inactive or out of stock since this was added. }
@@ -70,7 +71,23 @@ router.delete('/', optionalAuth, controller.clearCart);
  * /cart/items:
  *   post:
  *     tags: [Cart]
- *     summary: Add an item to the cart (increments quantity if it's already in there)
+ *     summary: Add an item to the cart (increments quantity if the same product+variant+giftBox combination is already in there)
+ *     description: >
+ *       `giftBox: true` adds the product's gift-box add-on to this line
+ *       (ignored — no error, just has no effect — if the product doesn't
+ *       actually offer one, i.e. `has_gift_box` is false or
+ *       `gift_box_price` is null). The price is always looked up
+ *       server-side from the product, same as every other price here —
+ *       never trusted from the client. This is the same `giftBox` concept
+ *       `POST /orders` already supports per item; a cart line with
+ *       `hasGiftBox: true` maps directly to sending `giftBox: true` for
+ *       that same product/variant at checkout.
+ *
+ *       A gift-boxed line and a plain line for the same product+variant
+ *       are always kept as two separate cart rows (two different prices,
+ *       two different purchase intents) — adding the same
+ *       product+variant+giftBox combination again increments that one
+ *       line's quantity instead of duplicating it.
  *     parameters: [{ $ref: '#/components/parameters/GuestTokenHeader' }]
  *     requestBody:
  *       required: true
@@ -83,8 +100,17 @@ router.delete('/', optionalAuth, controller.clearCart);
  *               productId: { type: integer }
  *               variantId: { type: integer, nullable: true, description: "Omit entirely, or send null, for a plain product with no variants — both are treated identically. Required (as a real, positive id) when the product actually has variants; sending null/omitting it for such a product is a 400, not a silent fallback to the base product price." }
  *               quantity: { type: integer, default: 1 }
+ *               giftBox: { type: boolean, default: false, description: "Add this product's gift box to this line. See description above." }
  *     responses:
- *       201: { description: Item added, content: { application/json: { schema: { $ref: '#/components/schemas/Cart' } } } }
+ *       201:
+ *         description: Item added
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Cart' }
+ *             examples:
+ *               withGiftBox:
+ *                 summary: Added with the gift box
+ *                 value: { success: true, message: "Added to cart", data: { id: 12, currency: KWD, guestToken: null, itemCount: 1, subtotal: 8.5, items: [{ id: 55, productId: 7, variantId: null, quantity: 1, hasGiftBox: true, unitPrice: 8.5, lineTotal: 8.5, available: true, product: { nameEn: "Classic Tee" }, variant: null }] } }
  *       400:
  *         description: Product/variant no longer available, out of stock, or variantId missing for a product that has variants
  *         content:
