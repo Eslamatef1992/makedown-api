@@ -88,9 +88,21 @@ const { checkout } = require('../../validators/checkout.validator');
  *         order_id: { type: integer, example: 233 }
  *         product_id: { type: integer, example: 57 }
  *         variant_id: { type: integer, nullable: true, example: 14 }
- *         product_name_snapshot: { type: string, example: "Classic Tee" }
+ *         product_name_snapshot:
+ *           type: string
+ *           example: "Classic Tee"
+ *           description: >
+ *             The product's name at the time of purchase. When this line
+ *             was bought with `giftBox: true` on the request (see POST
+ *             /orders), this becomes "<name> + Gift Box" — e.g.
+ *             "Classic Tee + Gift Box" — and `unit_price`/`line_total`
+ *             already include the gift box's price addition. There is no
+ *             separate `giftBox`/`hasGiftBox` field on this response
+ *             object; the suffix on this field is the only signal, since
+ *             the gift box price is folded into unit_price at the moment
+ *             of purchase and never re-looked-up afterward.
  *         quantity: { type: integer, example: 2 }
- *         unit_price: { type: string, example: "6.500", description: "DECIMAL column — comes back as a string, parse before doing math" }
+ *         unit_price: { type: string, example: "6.500", description: "DECIMAL column — comes back as a string, parse before doing math. Already includes the gift box price addition when this line had one — see product_name_snapshot." }
  *         line_total: { type: string, example: "13.000" }
  *         thumbnail_url: { type: string, nullable: true, example: "https://back.makedown.online/uploads/classic-tee.jpg" }
  *         attributes_json:
@@ -167,7 +179,20 @@ const { checkout } = require('../../validators/checkout.validator');
  *                     productId: { type: integer }
  *                     variantId: { type: integer, nullable: true, description: "Required when the product actually has variants — see POST /cart/items for the same rule" }
  *                     quantity: { type: integer, default: 1 }
- *                     giftBox: { type: boolean, description: "Price is always looked up server-side, never trusted from the client" }
+ *                     giftBox:
+ *                       type: boolean
+ *                       description: >
+ *                         Add this product's gift box to this line. Price is
+ *                         always looked up server-side from the product's
+ *                         own gift_box_price, never trusted from the
+ *                         client — a no-op (not an error) if the product
+ *                         doesn't actually offer one. Same field name/
+ *                         semantics as POST /cart/items's `giftBox` — a
+ *                         cart line with `hasGiftBox: true` maps directly
+ *                         to sending `giftBox: true` here for that same
+ *                         product/variant. See giftBoxTee example and
+ *                         OrderItemResult.product_name_snapshot for how it
+ *                         shows up in the response.
  *               shippingAddress: { $ref: '#/components/schemas/ShippingAddress' }
  *               paymentMethod:
  *                 type: string
@@ -207,6 +232,9 @@ const { checkout } = require('../../validators/checkout.validator');
  *             withCoupon:
  *               summary: With a discount code applied
  *               value: { items: [{ productId: 57, quantity: 1 }], shippingAddress: { governorate: "Hawalli", area: "Salmiya", block: "1", street: "Street 5", buildingNumber: "9" }, paymentMethod: credit_card, discountCode: WELCOME10 }
+ *             giftBoxTee:
+ *               summary: One item with the gift box added, one without
+ *               value: { items: [{ productId: 57, variantId: 14, quantity: 1, giftBox: true }, { productId: 61, quantity: 1 }], shippingAddress: { governorate: "Al Asimah", area: "Salmiya", block: "3", street: "Street 12", buildingNumber: "44" }, paymentMethod: cash, guestName: "Sara Al-Fahad", guestEmail: "sara@example.com", guestPhone: "+96555512345" }
  *     responses:
  *       201:
  *         description: Order placed (cash) or created pending payment (knet/credit_card/apple_pay/google_pay)
@@ -217,6 +245,9 @@ const { checkout } = require('../../validators/checkout.validator');
  *               cash:
  *                 summary: Cash — placed immediately, nothing to redirect to
  *                 value: { success: true, message: "Order placed", data: { id: 233, order_number: "MDLXJ3K9F2A1B", status: "processing", payment_status: "unpaid", payment_method: "cash", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", guest_name: "Sara Al-Fahad", guest_email: "sara@example.com", guest_phone: "+96555512345", items: [{ id: 881, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: null, reused: false } }
+ *               cashWithGiftBox:
+ *                 summary: Cash, same giftBoxTee request above — note unit_price/line_total already include the gift box addition, and the name suffix
+ *                 value: { success: true, message: "Order placed", data: { id: 235, order_number: "MDLXJ4A1B2C3", status: "processing", payment_status: "unpaid", payment_method: "cash", subtotal: "9.500", discount_total: "0.000", shipping_total: "2.000", grand_total: "11.500", currency: "KWD", guest_name: "Sara Al-Fahad", guest_email: "sara@example.com", guest_phone: "+96555512345", items: [{ id: 884, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee + Gift Box", quantity: 1, unit_price: "6.500", line_total: "6.500" }, { id: 885, product_id: 61, variant_id: null, product_name_snapshot: "Scented Candle", quantity: 1, unit_price: "3.000", line_total: "3.000" }], redirectUrl: null, reused: false } }
  *               online:
  *                 summary: KNET/credit_card/apple_pay/google_pay — redirect to pay
  *                 value: { success: true, message: "Redirecting to payment", data: { id: 234, order_number: "MDLXJ400A2C3", status: "pending", payment_status: "unpaid", payment_method: "knet", subtotal: "13.000", discount_total: "0.000", shipping_total: "2.000", grand_total: "15.000", currency: "KWD", items: [{ id: 882, product_id: 57, variant_id: 14, product_name_snapshot: "Classic Tee", quantity: 2, unit_price: "6.500", line_total: "13.000" }], redirectUrl: "https://demo.myfatoorah.com/KWT/ie/...", reused: false } }
